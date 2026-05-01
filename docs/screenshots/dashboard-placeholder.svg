@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720" role="img" aria-labelledby="title desc">
   <title id="title">Dashboard screenshot placeholder</title>
-  <desc id="desc">Placeholder for the Tehnadzor Online dashboard screenshot.</desc>
+  <desc id="desc">Placeholder for the Tehnadzor dashboard screenshot.</desc>
   <rect width="1280" height="720" fill="#f6f7f9"/>
   <rect x="64" y="56" width="1152" height="608" rx="12" fill="#ffffff" stroke="#d7dce2"/>
   <rect x="96" y="96" width="260" height="528" rx="8" fill="#111827"/>
@@ -9,6 +9,6 @@
   <rect x="392" y="288" width="752" height="120" rx="8" fill="#ffffff" stroke="#d7dce2"/>
   <rect x="392" y="440" width="752" height="120" rx="8" fill="#ffffff" stroke="#d7dce2"/>
   <text x="96" y="650" fill="#6b7280" font-family="Arial, sans-serif" font-size="22">Replace with anonymized dashboard screenshot</text>
-  <text x="420" y="178" fill="#1f2937" font-family="Arial, sans-serif" font-size="34" font-weight="700">Технадзор Онлайн</text>
+  <text x="420" y="178" fill="#1f2937" font-family="Arial, sans-serif" font-size="34" font-weight="700">Tehnadzor</text>
   <text x="420" y="222" fill="#4b5563" font-family="Arial, sans-serif" font-size="22">Dashboard placeholder</text>
 </svg>

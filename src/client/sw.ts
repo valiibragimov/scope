@@ -1,4 +1,4 @@
-// Service Worker для Технадзор Онлайн
+// Service Worker для Tehnadzor
 const CACHE_NAME = "technadzor-v36";
 const OFFLINE_URL = "index.html";
 const MANIFEST_URL = "manifest.json";

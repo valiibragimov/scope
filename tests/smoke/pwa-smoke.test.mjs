@@ -41,7 +41,7 @@ test("manifest resolves icons and shortcut targets", async () => {
   const manifest = await response.json();
 
   assert.equal(response.status, 200);
-  assert.equal(manifest.name, "Технадзор Онлайн");
+  assert.equal(manifest.name, "Tehnadzor");
   assert.ok(Array.isArray(manifest.icons) && manifest.icons.length >= 2);
   assert.ok(Array.isArray(manifest.shortcuts) && manifest.shortcuts.length >= 2);
 
