@@ -10,6 +10,10 @@ The project grew out of the Russian "Технадзор Онлайн" context: f
 
 SCOPE is in early active development. It is usable as a technical prototype, but the public repository is still being prepared for broader collaboration, documentation, demo data, and safer deployment defaults.
 
+## Live App
+
+A hosted version of SCOPE will be added here when the public demo is ready.
+
 ## What It Does
 
 - Tracks construction inspection checks and findings.
@@ -27,7 +31,9 @@ SCOPE is in early active development. It is usable as a technical prototype, but
 - Cloud: Firebase Hosting, Firestore, Authentication, Functions.
 - Tooling: npm, TypeScript, ESLint, Node test runner, esbuild.
 
-## Quick Start
+## Local Development
+
+This section is for developers and contributors who want to run the project locally.
 
 Requirements: Node.js 20+, npm, Python 3 or another static file server.
 
