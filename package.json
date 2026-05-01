@@ -16,7 +16,7 @@
     "build": "npm run clean && npm run build:ts && npm run build:profile-feed",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
-    "test:smoke": "npm run build:client && node --test tests/smoke/**/*.test.mjs",
+    "test:smoke": "npm run build:client && node ./scripts/run-smoke-tests.mjs",
     "test": "npm run test:smoke",
     "typecheck:bim": "tsc -p ./tsconfig.bim.json",
     "typecheck:strict:server-profile-feed": "tsc -p ./tsconfig.server.profile-feed.json --noEmit",
