@@ -1,6 +1,8 @@
-# SCOPE
+[English](#english) | [Русский](#русский)
 
-[English](README.md) | [Русский](README.ru.md)
+<a id="english"></a>
+
+# SCOPE
 
 SCOPE is an open-source web application for construction supervision, quality control, and BIM/IFC-based inspection workflows.
 
@@ -97,3 +99,107 @@ See [CONTRIBUTING.md](CONTRIBUTING.md).
 ## License
 
 SCOPE is released under the [MIT License](LICENSE).
+
+---
+
+[English](#english) | [Русский](#русский)
+
+<a id="русский"></a>
+
+# SCOPE
+
+SCOPE — open-source веб-приложение для строительного контроля, технического надзора и BIM/IFC-сценариев проверки качества.
+
+Проект вырос из контекста "Технадзор Онлайн": инженерам на объекте, техническим заказчикам, QA/QC-командам и BIM-координаторам нужен единый инструмент, где можно фиксировать проверки, сравнивать фактические значения с допусками, сохранять контекст замечаний и готовить более понятные отчеты.
+
+## Статус
+
+SCOPE находится в ранней активной разработке. Сейчас это рабочий технический прототип, а публичный репозиторий постепенно приводится к формату, удобному для совместной разработки, демо-данных, документации и безопасного деплоя.
+
+## Онлайн-версия
+
+Публичная hosted-версия SCOPE будет добавлена здесь, когда демо будет готово.
+
+## Возможности
+
+- Ведение строительных проверок и замечаний.
+- Модули геодезии, армирования, геометрии и прочности бетона.
+- Хранение проектов и результатов проверок через Firebase.
+- Импорт и обработка BIM/IFC-данных.
+- Подготовка текста отчета на основе структурированных результатов.
+- Локальный Node/Express API и Firebase Functions для серверных сценариев.
+
+## Стек
+
+- Frontend: HTML, CSS, TypeScript.
+- BIM/3D: Three.js, That Open Components, web-ifc, ifc-lite.
+- Backend: Node.js, Express, TypeScript.
+- Cloud: Firebase Hosting, Firestore, Authentication, Functions.
+- Tooling: npm, TypeScript, ESLint, Node test runner, esbuild.
+
+## Локальная разработка
+
+Этот раздел нужен разработчикам и contributors, которые хотят запустить проект локально.
+
+Требования: Node.js 20+, npm, Python 3 или другой статический сервер.
+
+```bash
+npm install
+cd server && npm install
+cd ../functions && npm install
+cd ..
+```
+
+Создайте локальную конфигурацию Firebase web app:
+
+```bash
+cp .env.example .env
+```
+
+Заполните `FIREBASE_WEB_*` в `.env` значениями из Firebase Console -> Project settings -> General -> Your apps -> Web app. Если значения не заданы, сборка клиента завершится ошибкой, чтобы случайно не опубликовать placeholders.
+
+Сборка и запуск клиента:
+
+```bash
+npm run build:client
+python -m http.server 8000
+```
+
+Откройте `http://localhost:8000`.
+
+Полезные проверки:
+
+```bash
+npm run lint
+npm run typecheck
+npm test
+```
+
+## Безопасность
+
+Не коммитьте `.env`, service account файлы, приватные ключи, токены, реальные IFC/BIM-модели, персональные данные, адреса объектов, договоры, сметы и закрытую проектную документацию.
+
+Firebase web config подставляется из локального окружения во время сборки. Firebase Admin credentials должны храниться только локально или в secret storage окружения.
+
+Полная политика описана в [SECURITY.ru.md](SECURITY.ru.md).
+
+## Roadmap
+
+- Добавить безопасный demo mode и обезличенные sample data.
+- Улучшить BIM/IFC mapping и связь замечаний с элементами модели.
+- Описать Firestore collections и security rules.
+- Добавить CI для lint, typecheck, tests и secret scanning.
+- Добавить шаблоны экспорта отчетов для практики технадзора.
+- Расширить документацию для contributors и deployers.
+
+## Участие
+
+Вклад приветствуется, особенно в части строительных проверок, BIM/IFC, тестов, документации и безопасного деплоя.
+
+SCOPE связан со строительным контролем, поэтому изменения должны сохранять инженерную точность: допуски, проверки, нормативные ссылки, логику отчетов и BIM/IFC-поведение нужно менять аккуратно.
+
+См. [CONTRIBUTING.ru.md](CONTRIBUTING.ru.md).
+
+## Лицензия
+
+SCOPE распространяется по [MIT License](LICENSE).
