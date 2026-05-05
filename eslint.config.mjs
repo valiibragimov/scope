@@ -2,6 +2,7 @@ import js from "@eslint/js";
 import globals from "globals";
 import tseslint from "typescript-eslint";
 
+// Tehnadzor lint configuration for client, server, functions, scripts, and smoke tests.
 const tsFiles = ["src/**/*.ts", "server/src/**/*.ts", "functions/src/**/*.ts"];
 const jsFiles = ["scripts/**/*.mjs", "tests/**/*.mjs", "eslint.config.mjs"];
 

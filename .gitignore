@@ -1,3 +1,5 @@
+# Tehnadzor repository ignore rules.
+
 # Logs
 logs
 *.log

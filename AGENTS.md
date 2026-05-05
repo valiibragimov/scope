@@ -1,5 +1,7 @@
 # AGENTS
 
+Краткая карта проекта для Codex/agent-based работы в репозитории Tehnadzor.
+
 ## Source Of Truth
 
 - `src/client/**` — основной клиентский TypeScript-слой.
