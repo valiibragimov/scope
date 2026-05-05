@@ -269,6 +269,17 @@
           logStep("2. viewer opened");
           logStep(`debug after open:\n${stringifyDebug(await viewerApi.debug())}`);
 
+          const normalizeButton = workspace.querySelector("[data-bim-normalize-display]");
+          if (normalizeButton && !normalizeButton.hidden) {
+            logStep("2a. apply display normalization");
+            await clickAndRender(normalizeButton);
+            logStep(`debug after normalization:\n${stringifyDebug(await viewerApi.debug())}`);
+            logStep(`normalization badge: ${workspace.querySelector(".bim-workspace__normalized-badge")?.textContent?.trim() || ""}`);
+            logStep(`diagnostic status: ${workspace.querySelector(".bim-workspace__diagnostic-warning")?.textContent?.trim() || ""}`);
+          } else {
+            logStep("2a. normalization button is not visible");
+          }
+
           const floorButtons = await waitFor(() => {
             const buttons = Array.from(workspace.querySelectorAll("[data-bim-floor-key]"));
             return buttons.length ? buttons : null;

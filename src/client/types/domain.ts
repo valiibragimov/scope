@@ -62,7 +62,20 @@ export interface Project {
   id: string;
   name?: string | null;
   address?: string | null;
+  objectAddress?: string | null;
+  siteAddress?: string | null;
+  customerName?: string | null;
+  ownerName?: string | null;
+  developerName?: string | null;
+  technicalCustomerName?: string | null;
+  technicalCustomer?: string | null;
   contractorName?: string | null;
+  designerName?: string | null;
+  projectOrganization?: string | null;
+  technicalSupervisorCompany?: string | null;
+  supervisorCompany?: string | null;
+  stage?: string | null;
+  projectStage?: string | null;
   ownerUid?: string | null;
   createdBy?: string | null;
   createdAt?: number | FirestoreTimestampLike | null;
@@ -182,11 +195,39 @@ export interface IfcImportProgress {
   sourceModelId?: string;
 }
 
+export interface IfcCoordinateBounds {
+  minX: number;
+  minY: number;
+  minZ: number;
+  maxX: number;
+  maxY: number;
+  maxZ: number;
+}
+
+export interface IfcDiagnosticSummary {
+  exporter: string | null;
+  originatingSystem: string | null;
+  preprocessorVersion: string | null;
+  authorization: string | null;
+  applications: string[];
+  hasNanoCadExporter: boolean;
+  isSuspicious: boolean;
+  reasons: string[];
+  boundingBox: IfcCoordinateBounds | null;
+  validCoordinateCount: number;
+  abnormalCoordinateCount: number;
+  maxAbsCoordinate: number;
+  spread: number;
+  hasAbnormalCoordinates: boolean;
+  hasLargeSpread: boolean;
+}
+
 export interface IfcImportResult {
   sourceModelId: string;
   fileName: string;
   importedCount: number;
   replacedCount?: number;
   countsByType: Partial<Record<BimElementType, number>>;
+  diagnosticSummary?: IfcDiagnosticSummary;
   elements: Record<string, unknown>[];
 }

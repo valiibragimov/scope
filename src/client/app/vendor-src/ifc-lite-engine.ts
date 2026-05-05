@@ -13,10 +13,18 @@ import initIfcLiteWasm, { IfcAPI } from "@ifc-lite/wasm";
 
 import { getCachedProjectIfcFile } from "../services/ifc-file-cache.js";
 import { createSourceModelIdFromFile } from "../services/ifc-import.js";
+import {
+  analyzeIfcElementCoordinates,
+  analyzeIfcModelDiagnostics,
+  buildIfcDiagnosticSummary,
+  calculateDisplayElementCorrections,
+  createViewerNormalizationDecision
+} from "../services/ifc-diagnostics.js";
 import type { BimElement } from "../../types/domain.js";
 
 const SELECT_COLOR = new THREE.Color("#7dd3fc");
 const ISO_VIEW_DIRECTION = new THREE.Vector3(1.52, 0.62, 1.18).normalize();
+const IFC_HEADER_SCAN_BYTES = 262144;
 const IFC_LITE_TO_BIM_TYPE = Object.freeze({
   IFCSLAB: "slab",
   IFCPLATE: "slab",
@@ -67,6 +75,8 @@ interface ElementEntry {
   expressId: number;
   element: ElementRecord;
   object: THREE.Group;
+  rawBounds: THREE.Box3;
+  displayCorrection: THREE.Vector3;
   bounds: THREE.Box3;
   center: THREE.Vector3;
   pickables: THREE.Mesh[];
@@ -76,6 +86,7 @@ interface ElementEntry {
 interface ModelEntry {
   modelId: string;
   object: THREE.Group;
+  rawBox: THREE.Box3;
   box: THREE.Box3;
   lookupKeys: Set<string>;
   floorMaps: Map<string, ModelIdMap>;
@@ -238,6 +249,49 @@ function serializeVector3(vector: THREE.Vector3 | null | undefined) {
 function serializeBox3(box: THREE.Box3 | null | undefined) {
   if (!box?.isBox3) return null;
   return { min: serializeVector3(box.min), max: serializeVector3(box.max) };
+}
+
+function createEmptyIfcMetadata() {
+  return {
+    exporter: null,
+    originatingSystem: null,
+    preprocessorVersion: null,
+    authorization: null,
+    applications: [] as string[],
+    hasNanoCadExporter: false
+  };
+}
+
+function createViewerDiagnosticSummary(elements: ElementRecord[] = [], sourceSummaries = []) {
+  const coordinateSummary = analyzeIfcElementCoordinates(elements);
+  const metadata = createEmptyIfcMetadata();
+  const reasons = new Set<string>();
+
+  for (const sourceSummary of sourceSummaries || []) {
+    if (!sourceSummary) continue;
+    metadata.exporter ||= sourceSummary.exporter || null;
+    metadata.originatingSystem ||= sourceSummary.originatingSystem || null;
+    metadata.preprocessorVersion ||= sourceSummary.preprocessorVersion || null;
+    metadata.authorization ||= sourceSummary.authorization || null;
+    metadata.hasNanoCadExporter ||= Boolean(sourceSummary.hasNanoCadExporter);
+    for (const application of sourceSummary.applications || []) {
+      if (application && !metadata.applications.includes(application)) {
+        metadata.applications.push(application);
+      }
+    }
+    for (const reason of sourceSummary.reasons || []) {
+      reasons.add(reason);
+    }
+  }
+
+  const summary = buildIfcDiagnosticSummary(metadata, coordinateSummary);
+  for (const reason of reasons) {
+    if (!summary.reasons.includes(reason)) {
+      summary.reasons.push(reason);
+    }
+  }
+  summary.isSuspicious = summary.reasons.length > 0;
+  return summary;
 }
 
 function getBoxSize(box: THREE.Box3 | null | undefined) {
@@ -1164,6 +1218,10 @@ export async function createIfcLiteEngine({
 
   const modelRoot = new THREE.Group();
   scene.add(modelRoot);
+  const viewerDisplayOffset = new THREE.Vector3();
+  let viewerDisplayNormalized = false;
+  let viewerNormalizationDecision = createViewerNormalizationDecision({ boundingBox: null });
+  let viewerDisplayRepairDiagnostics: ReturnType<typeof buildViewerDisplayRepairDiagnostics> | null = null;
 
   const elementEntries = new Map<string, ElementEntry>();
   const modelEntries = new Map<string, ModelEntry>();
@@ -1172,6 +1230,7 @@ export async function createIfcLiteEngine({
   const loadedModelIds = new Set<string>();
   const missingSources: string[] = [];
   const floorModelIdMaps = new Map<string, ModelIdMap>();
+  const sourceDiagnosticSummaries = [];
   let ifcLiteApi: IfcAPI | null = null;
 
   const elementsByModelId = new Map<string, Map<number, ElementRecord>>();
@@ -1214,6 +1273,64 @@ export async function createIfcLiteEngine({
     scene.add(grid);
   }
 
+  function getDisplayBox(rawBox: THREE.Box3 | null | undefined, localOffset?: THREE.Vector3 | null) {
+    if (!isFiniteBox3(rawBox) || rawBox.isEmpty()) return null;
+    const box = rawBox.clone();
+    if (localOffset && Number.isFinite(localOffset.x) && Number.isFinite(localOffset.y) && Number.isFinite(localOffset.z)) {
+      box.translate(localOffset);
+    }
+    if (viewerDisplayNormalized) {
+      box.translate(viewerDisplayOffset);
+    }
+    return box;
+  }
+
+  function getModelDisplayBox(model: ModelEntry) {
+    const union = new THREE.Box3();
+    let hasGeometry = false;
+    for (const lookupKey of model.lookupKeys || []) {
+      const elementBounds = elementEntries.get(lookupKey)?.bounds;
+      if (!isFiniteBox3(elementBounds) || elementBounds.isEmpty()) continue;
+      if (!hasGeometry) {
+        union.copy(elementBounds);
+        hasGeometry = true;
+      } else {
+        union.union(elementBounds);
+      }
+    }
+    return hasGeometry ? union : getDisplayBox(model.rawBox);
+  }
+
+  function getRawVisibleWorldBox() {
+    const union = new THREE.Box3();
+    let hasGeometry = false;
+    for (const entry of elementEntries.values()) {
+      if (!entry.object.visible || !isFiniteBox3(entry.rawBounds) || entry.rawBounds.isEmpty()) continue;
+      if (!hasGeometry) {
+        union.copy(entry.rawBounds);
+        hasGeometry = true;
+      } else {
+        union.union(entry.rawBounds);
+      }
+    }
+    return hasGeometry ? union : null;
+  }
+
+  function getRawWorldBox() {
+    const union = new THREE.Box3();
+    let hasGeometry = false;
+    for (const model of modelEntries.values()) {
+      if (!isFiniteBox3(model.rawBox) || model.rawBox.isEmpty()) continue;
+      if (!hasGeometry) {
+        union.copy(model.rawBox);
+        hasGeometry = true;
+      } else {
+        union.union(model.rawBox);
+      }
+    }
+    return hasGeometry ? union : null;
+  }
+
   function ensureModelEntry(modelId: string): ModelEntry {
     const existing = modelEntries.get(modelId);
     if (existing) return existing;
@@ -1222,10 +1339,14 @@ export async function createIfcLiteEngine({
     object.name = `model:${modelId}`;
     modelRoot.add(object);
 
+    const rawBox = new THREE.Box3();
     const entry: ModelEntry = {
       modelId,
       object,
-      box: new THREE.Box3(),
+      rawBox,
+      get box() {
+        return getModelDisplayBox(this) || new THREE.Box3();
+      },
       lookupKeys: new Set(),
       floorMaps: new Map(),
       dataStore: null,
@@ -1237,12 +1358,13 @@ export async function createIfcLiteEngine({
         for (const localId of localIds || []) {
           const lookupKey = createElementLookupKey(modelId, localId);
           const elementEntry = elementEntries.get(lookupKey);
-          if (!elementEntry || !isFiniteBox3(elementEntry.bounds) || elementEntry.bounds.isEmpty()) continue;
+          const elementBounds = elementEntry?.bounds;
+          if (!elementBounds || !isFiniteBox3(elementBounds) || elementBounds.isEmpty()) continue;
           if (!hasBounds) {
-            union.copy(elementEntry.bounds);
+            union.copy(elementBounds);
             hasBounds = true;
           } else {
-            union.union(elementEntry.bounds);
+            union.union(elementBounds);
           }
         }
         return hasBounds ? union : null;
@@ -1271,8 +1393,14 @@ export async function createIfcLiteEngine({
       expressId,
       element,
       object,
-      bounds: new THREE.Box3(),
-      center: new THREE.Vector3(),
+      rawBounds: new THREE.Box3(),
+      displayCorrection: new THREE.Vector3(),
+      get bounds() {
+        return getDisplayBox(this.rawBounds, this.displayCorrection) || new THREE.Box3();
+      },
+      get center() {
+        return this.bounds.getCenter(new THREE.Vector3());
+      },
       pickables: [],
       materials: []
     };
@@ -1312,18 +1440,17 @@ export async function createIfcLiteEngine({
     });
 
     const meshBounds = geometry.boundingBox.clone();
-    if (entry.bounds.isEmpty()) {
-      entry.bounds.copy(meshBounds);
+    if (entry.rawBounds.isEmpty()) {
+      entry.rawBounds.copy(meshBounds);
     } else {
-      entry.bounds.union(meshBounds);
+      entry.rawBounds.union(meshBounds);
     }
-    entry.center.copy(entry.bounds.getCenter(new THREE.Vector3()));
 
     const modelEntry = ensureModelEntry(entry.modelId);
-    if (modelEntry.box.isEmpty()) {
-      modelEntry.box.copy(meshBounds);
+    if (modelEntry.rawBox.isEmpty()) {
+      modelEntry.rawBox.copy(meshBounds);
     } else {
-      modelEntry.box.union(meshBounds);
+      modelEntry.rawBox.union(meshBounds);
     }
 
     return true;
@@ -1344,18 +1471,17 @@ export async function createIfcLiteEngine({
       emissive: solid.material.emissive.clone()
     });
 
-    if (entry.bounds.isEmpty()) {
-      entry.bounds.copy(solid.bounds);
+    if (entry.rawBounds.isEmpty()) {
+      entry.rawBounds.copy(solid.bounds);
     } else {
-      entry.bounds.union(solid.bounds);
+      entry.rawBounds.union(solid.bounds);
     }
-    entry.center.copy(entry.bounds.getCenter(new THREE.Vector3()));
 
     const modelEntry = ensureModelEntry(entry.modelId);
-    if (modelEntry.box.isEmpty()) {
-      modelEntry.box.copy(solid.bounds);
+    if (modelEntry.rawBox.isEmpty()) {
+      modelEntry.rawBox.copy(solid.bounds);
     } else {
-      modelEntry.box.union(solid.bounds);
+      modelEntry.rawBox.union(solid.bounds);
     }
 
     return true;
@@ -1383,6 +1509,10 @@ export async function createIfcLiteEngine({
       if (processorReady && resolved?.file) {
         const rawBuffer = await resolved.file.arrayBuffer();
         const bytes = new Uint8Array(rawBuffer);
+        const headerText = new TextDecoder("utf-8").decode(bytes.slice(0, Math.min(bytes.byteLength, IFC_HEADER_SCAN_BYTES)));
+        sourceDiagnosticSummaries.push(
+          analyzeIfcModelDiagnostics(headerText, [...sourceElements.values()])
+        );
         let dataStore: IfcDataStore | null = null;
 
         try {
@@ -1456,6 +1586,111 @@ export async function createIfcLiteEngine({
     }
   }
 
+  const diagnosticSummary = createViewerDiagnosticSummary(allElements, sourceDiagnosticSummaries);
+
+  function getRawElementCenter(entry: ElementEntry) {
+    if (!isFiniteBox3(entry.rawBounds) || entry.rawBounds.isEmpty()) return null;
+    return entry.rawBounds.getCenter(new THREE.Vector3());
+  }
+
+  function getRawElementDiagonal(entry: ElementEntry) {
+    if (!isFiniteBox3(entry.rawBounds) || entry.rawBounds.isEmpty()) return 0;
+    return getBoxDiagonal(entry.rawBounds) || 0;
+  }
+
+  function getElementDisplayTargetCenter(entry: ElementEntry) {
+    const element = entry.element || {};
+    const hasPlanPoint =
+      isFiniteNumber(element.projectX) ||
+      isFiniteNumber(element.projectY) ||
+      (isFiniteNumber(element.lineStartX) && isFiniteNumber(element.lineStartY)) ||
+      (isFiniteNumber(element.lineEndX) && isFiniteNumber(element.lineEndY));
+    if (!hasPlanPoint) return null;
+
+    const modelEntry = modelEntries.get(entry.modelId);
+    const projectPoint = getElementPlanPoint(element);
+    const centerPlan = projectPoint ? applyPlanAlignment(projectPoint, modelEntry?.planAlignment || null) : null;
+    const rawSize = isFiniteBox3(entry.rawBounds)
+      ? entry.rawBounds.getSize(new THREE.Vector3())
+      : new THREE.Vector3();
+    const fallbackHeight = resolveElementFallbackMetrics(element).height;
+    const targetHeight = Number.isFinite(rawSize.y) && rawSize.y > 0 ? rawSize.y : fallbackHeight;
+
+    return new THREE.Vector3(
+      centerPlan?.x ?? mmToMeters(element.projectX, 0),
+      mmToMeters(element.projectH, 0) + targetHeight / 2 + Number(modelEntry?.planAlignment?.elevationOffset || 0),
+      centerPlan?.y ?? mmToMeters(element.projectY, 0)
+    );
+  }
+
+  function getDisplayRepairInputs() {
+    return [...elementEntries.values()].flatMap((entry) => {
+      const rawCenter = getRawElementCenter(entry);
+      if (!rawCenter) return [];
+      const targetCenter = getElementDisplayTargetCenter(entry);
+      return [{
+        id: entry.lookupKey,
+        label: String(entry.element.name || entry.element.type || entry.element.id || entry.lookupKey).trim(),
+        rawCenter: serializeVector3(rawCenter),
+        targetCenter: targetCenter ? serializeVector3(targetCenter) : null,
+        rawDiagonal: getRawElementDiagonal(entry)
+      }];
+    });
+  }
+
+  function resetDisplayElementCorrections() {
+    for (const entry of elementEntries.values()) {
+      entry.displayCorrection.set(0, 0, 0);
+      entry.object.position.set(0, 0, 0);
+    }
+  }
+
+  function buildViewerDisplayRepairDiagnostics(
+    repairSummary: ReturnType<typeof calculateDisplayElementCorrections>,
+    {
+      rawBox,
+      displayBoxAfterElementCorrection,
+      displayBoxAfterNormalization
+    }: {
+      rawBox?: THREE.Box3 | null;
+      displayBoxAfterElementCorrection?: THREE.Box3 | null;
+      displayBoxAfterNormalization?: THREE.Box3 | null;
+    } = {}
+  ) {
+    return {
+      exporter: diagnosticSummary.exporter,
+      originatingSystem: diagnosticSummary.originatingSystem,
+      modelBoxBefore: serializeBox3(rawBox || getRawWorldBox()),
+      displayBoxBefore: serializeBox3(rawBox || getRawVisibleWorldBox() || getRawWorldBox()),
+      displayBoxAfterElementCorrection: serializeBox3(displayBoxAfterElementCorrection),
+      displayBoxAfterNormalization: serializeBox3(displayBoxAfterNormalization),
+      elementCount: repairSummary.elementCount,
+      suspiciousElementCount: repairSummary.suspiciousElementCount,
+      correctedCount: repairSummary.correctedCount,
+      beforeSpread: repairSummary.beforeSpread,
+      afterSpread: repairSummary.afterSpread,
+      clusterCenter: repairSummary.clusterCenter,
+      medianDistance: repairSummary.medianDistance,
+      medianAbsoluteDeviation: repairSummary.medianAbsoluteDeviation,
+      medianDiagonal: repairSummary.medianDiagonal,
+      clusterThreshold: repairSummary.clusterThreshold,
+      targetThreshold: repairSummary.targetThreshold,
+      forcedTargetThreshold: repairSummary.forcedTargetThreshold,
+      topSuspicious: repairSummary.topSuspicious,
+      correctedElements: repairSummary.corrections
+    };
+  }
+
+  function applyDisplayElementCorrections(repairSummary: ReturnType<typeof calculateDisplayElementCorrections>) {
+    resetDisplayElementCorrections();
+    for (const correction of repairSummary.corrections) {
+      const entry = elementEntries.get(correction.id);
+      if (!entry) continue;
+      entry.displayCorrection.set(correction.offset.x, correction.offset.y, correction.offset.z);
+      entry.object.position.copy(entry.displayCorrection);
+    }
+  }
+
   const fragments = {
     list: modelEntries,
     floorMaps: floorModelIdMaps
@@ -1492,12 +1727,13 @@ export async function createIfcLiteEngine({
     const union = new THREE.Box3();
     let hasGeometry = false;
     for (const entry of elementEntries.values()) {
-      if (!entry.object.visible || !isFiniteBox3(entry.bounds) || entry.bounds.isEmpty()) continue;
+      const entryBounds = entry.bounds;
+      if (!entry.object.visible || !isFiniteBox3(entryBounds) || entryBounds.isEmpty()) continue;
       if (!hasGeometry) {
-        union.copy(entry.bounds);
+        union.copy(entryBounds);
         hasGeometry = true;
       } else {
-        union.union(entry.bounds);
+        union.union(entryBounds);
       }
     }
     return hasGeometry ? union : null;
@@ -1644,6 +1880,13 @@ export async function createIfcLiteEngine({
         planAlignment: model.planAlignment
       })),
       worldBox: serializeBox3(getVisibleWorldBox() || getWorldBoundingBox(modelEntries)),
+      diagnosticSummary,
+      viewerNormalization: {
+        normalized: viewerDisplayNormalized,
+        offset: serializeVector3(viewerDisplayOffset),
+        decision: viewerNormalizationDecision,
+        displayRepair: viewerDisplayRepairDiagnostics
+      },
       camera: {
         projection: projectionMode,
         mode: cameraMode,
@@ -1765,6 +2008,64 @@ export async function createIfcLiteEngine({
     },
     setBackgroundTheme(nextTheme: "light" | "dark" | string) {
       applyBackgroundTheme(nextTheme);
+    },
+    get diagnosticSummary() {
+      return diagnosticSummary;
+    },
+    get viewerNormalization() {
+      return {
+        normalized: viewerDisplayNormalized,
+        offset: serializeVector3(viewerDisplayOffset),
+        decision: viewerNormalizationDecision,
+        displayRepair: viewerDisplayRepairDiagnostics
+      };
+    },
+    setViewerNormalization(enabled: boolean) {
+      const rawBox = getRawVisibleWorldBox() || getRawWorldBox();
+      const forceNormalization = Boolean(enabled && diagnosticSummary.isSuspicious);
+      viewerDisplayNormalized = false;
+      viewerDisplayOffset.set(0, 0, 0);
+      modelRoot.position.copy(viewerDisplayOffset);
+      resetDisplayElementCorrections();
+
+      if (!enabled) {
+        viewerNormalizationDecision = createViewerNormalizationDecision({
+          boundingBox: serializeBox3(rawBox),
+          force: false
+        });
+        viewerDisplayRepairDiagnostics = null;
+        modelRoot.updateMatrixWorld(true);
+        return false;
+      }
+
+      const repairSummary = calculateDisplayElementCorrections(getDisplayRepairInputs(), {
+        force: forceNormalization
+      });
+      applyDisplayElementCorrections(repairSummary);
+      const displayBoxAfterElementCorrection = getVisibleWorldBox() || getWorldBoundingBox(modelEntries) || rawBox;
+      viewerNormalizationDecision = createViewerNormalizationDecision({
+        boundingBox: serializeBox3(displayBoxAfterElementCorrection),
+        force: forceNormalization
+      });
+      viewerDisplayNormalized = Boolean(
+        viewerNormalizationDecision.shouldNormalize || repairSummary.correctedCount > 0
+      );
+      viewerDisplayOffset.set(
+        viewerNormalizationDecision.shouldNormalize ? viewerNormalizationDecision.offset.x : 0,
+        viewerNormalizationDecision.shouldNormalize ? viewerNormalizationDecision.offset.y : 0,
+        viewerNormalizationDecision.shouldNormalize ? viewerNormalizationDecision.offset.z : 0
+      );
+      modelRoot.position.copy(viewerDisplayOffset);
+      modelRoot.updateMatrixWorld(true);
+      viewerDisplayRepairDiagnostics = buildViewerDisplayRepairDiagnostics(repairSummary, {
+        rawBox,
+        displayBoxAfterElementCorrection,
+        displayBoxAfterNormalization: getVisibleWorldBox() || getWorldBoundingBox(modelEntries)
+      });
+      if (diagnosticSummary.isSuspicious || repairSummary.correctedCount > 0) {
+        console.info("[BIM viewer] IFC display repair diagnostics", viewerDisplayRepairDiagnostics);
+      }
+      return viewerDisplayNormalized;
     },
     get currentViewId() {
       return currentViewId;

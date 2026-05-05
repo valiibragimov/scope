@@ -269,6 +269,34 @@ export interface JournalEntryRecord extends Record<string, unknown> {
   } | null;
 }
 
+export interface IssueRecord extends Record<string, unknown> {
+  id?: string | null;
+  projectId?: string | null;
+  sourceInspectionId?: string | null;
+  sourceJournalEntryId?: string | null;
+  module?: string | null;
+  moduleKey?: string | null;
+  construction?: string | null;
+  constructionLabel?: string | null;
+  context?: string | null;
+  title?: string | null;
+  description?: string | null;
+  normativeBasis?: string | null;
+  correctiveAction?: string | null;
+  responsibleName?: string | null;
+  dueDate?: number | null;
+  repeatControlJournalEntryId?: string | null;
+  repeatControlInspectionId?: string | null;
+  repeatControlAt?: number | FirestoreTimestampLike | null;
+  repeatControlStatus?: "ok" | "exceeded" | "pending" | null;
+  repeatControlDetails?: string | null;
+  status?: "draft" | "issued" | "in_progress" | "ready_for_review" | "closed" | "overdue";
+  severity?: "low" | "medium" | "high" | "critical";
+  createdAt?: number | FirestoreTimestampLike | null;
+  updatedAt?: number | FirestoreTimestampLike | null;
+  closedAt?: number | FirestoreTimestampLike | null;
+}
+
 export interface KnowledgeRegistryField {
   key: string;
   label: string;

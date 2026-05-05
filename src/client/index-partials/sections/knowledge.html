@@ -17,6 +17,43 @@
             Здесь собраны статьи о конструкциях и их параметрах.
           </p>
 
+          <div class="normative-assistant" id="normativeAssistant">
+            <div class="normative-assistant__head">
+              <div>
+                <h3>Нормативный ассистент</h3>
+                <p>Быстрый подбор допусков, нормативных документов и контрольных параметров по конструкции.</p>
+              </div>
+              <span class="normative-assistant__badge">Реестр Tehnadzor</span>
+            </div>
+            <div class="normative-assistant__controls">
+              <label>
+                <span>Конструкция</span>
+                <select id="normativeAssistantConstruction"></select>
+              </label>
+              <label>
+                <span>Раздел</span>
+                <select id="normativeAssistantModule">
+                  <option value="">Все разделы</option>
+                  <option value="geo">Геодезия</option>
+                  <option value="reinforcement">Армирование</option>
+                  <option value="geometry">Геометрия</option>
+                  <option value="strength">Прочность</option>
+                </select>
+              </label>
+              <label class="normative-assistant__query">
+                <span>Вопрос или параметр</span>
+                <input type="text" id="normativeAssistantQuery" placeholder="Например: допуск X/Y, защитный слой, прочность" autocomplete="off" />
+              </label>
+              <div class="normative-assistant__action">
+                <button id="btnNormativeAssistantAsk" type="button" class="btn-small btn-secondary lg-btn lg-btn--pill">
+                  <span class="lg-btn__label">Найти</span>
+                  <span class="lg-btn__glow" aria-hidden="true"></span>
+                </button>
+              </div>
+            </div>
+            <div class="normative-assistant__result" id="normativeAssistantResult"></div>
+          </div>
+
           <div class="knowledge-search-bar">
             <input type="text" id="knowledgeSearchInput" placeholder="Поиск" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" />
             <button id="btnKnowledgeSearch" class="btn-small btn-secondary lg-btn lg-btn--pill">

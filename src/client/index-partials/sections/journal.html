@@ -75,6 +75,24 @@
 </table>
 
         </div>
+        <div class="card journal-issues-panel" id="journalIssuesPanel" style="margin-top:12px;">
+          <div class="journal-issues-head">
+            <div>
+              <h3 class="card-title">Замечания</h3>
+              <p class="subtitle">
+                Создаются из строк журнала с нарушениями и помогают вести корректирующие действия.
+              </p>
+            </div>
+            <div class="journal-issues-stats" aria-live="polite">
+              <span>Открыто: <strong id="journalIssueOpenCount">0</strong></span>
+              <span>Просрочено: <strong id="journalIssueOverdueCount">0</strong></span>
+            </div>
+          </div>
+          <div id="journalIssueEmpty" class="journal-issue-empty">
+            Пока нет замечаний. Создайте замечание из строки журнала со статусом «Превышено».
+          </div>
+          <div id="journalIssueList" class="journal-issue-list"></div>
+        </div>
       </div>
     </section>
 

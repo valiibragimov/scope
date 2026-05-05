@@ -1,5 +1,5 @@
 import { REGULATORY_DOCS } from "../../config.js";
-import { sanitizeHtml, showNotification } from "../../utils.js";
+import { escapeHtml, sanitizeHtml, showNotification } from "../../utils.js";
 import type {
   KnowledgeArticle,
   KnowledgeConstructionCard,
@@ -8,6 +8,7 @@ import type {
 } from "../../types/module-records.js";
 import {
   KNOWLEDGE_CATEGORIES,
+  KNOWLEDGE_MODULES,
   KNOWLEDGE_SCROLL_TOP_THRESHOLD,
   getKnowledgeConstructionCard
 } from "./knowledge-catalog.js";
@@ -29,6 +30,7 @@ let currentKnowledgeSubcategoryKey: string | null = null;
 let knowledgeArticles: KnowledgeArticle[] = [];
 let filteredArticles: KnowledgeArticle[] = [];
 let knowledgeScrollTopBound = false;
+let normativeAssistantBound = false;
 
 type KnowledgeItemControlStatus = "object_control" | "factory_control" | "not_applicable";
 
@@ -105,6 +107,7 @@ function initKnowledgeBase() {
 
   // Загрузка статей (синхронно, так как они в коде)
   loadKnowledgeArticles();
+  initNormativeAssistant();
 }
 
 function selectKnowledgeCategory(categoryKey) {
@@ -410,14 +413,203 @@ function articleMatchesQuery(article: KnowledgeArticle, rawQuery: string) {
   return getKnowledgeSearchHaystack(article).includes(query);
 }
 
+function getNormativeAssistantConstructionOptions() {
+  const byKey = new Map<string, string>();
+  knowledgeArticles.forEach((article) => {
+    const key = String(article.constructionKey || "").trim();
+    if (!key || byKey.has(key)) return;
+    byKey.set(key, String(article.construction || article.constructionType || key));
+  });
+
+  return Array.from(byKey.entries())
+    .map(([key, label]) => ({ key, label }))
+    .sort((a, b) => a.label.localeCompare(b.label, "ru"));
+}
+
+function getNormativeAssistantElements() {
+  return {
+    construction: document.getElementById("normativeAssistantConstruction") as HTMLSelectElement | null,
+    module: document.getElementById("normativeAssistantModule") as HTMLSelectElement | null,
+    query: document.getElementById("normativeAssistantQuery") as HTMLInputElement | null,
+    result: document.getElementById("normativeAssistantResult"),
+    ask: document.getElementById("btnNormativeAssistantAsk")
+  };
+}
+
+function populateNormativeAssistantConstructions() {
+  const { construction } = getNormativeAssistantElements();
+  if (!construction) return;
+
+  const options = getNormativeAssistantConstructionOptions();
+  construction.textContent = "";
+  options.forEach((option, index) => {
+    const optionEl = document.createElement("option");
+    optionEl.value = option.key;
+    optionEl.textContent = option.label;
+    if (index === 0) optionEl.selected = true;
+    construction.appendChild(optionEl);
+  });
+}
+
+function formatAssistantControlStatus(article: KnowledgeArticle) {
+  const status = String(article.controlStatus || "");
+  if (status === "factory_control") return "Заводской контроль";
+  if (status === "not_applicable") return "Не применяется";
+  return article.controlStatusLabel ? String(article.controlStatusLabel) : "Объектовый контроль";
+}
+
+function getAssistantStatusClass(article: KnowledgeArticle) {
+  const status = String(article.controlStatus || "");
+  if (status === "factory_control") return "factory";
+  if (status === "not_applicable") return "disabled";
+  return "object";
+}
+
+function formatAssistantDocs(article: KnowledgeArticle) {
+  const docs = article.normativeDocs || [];
+  if (docs.length === 0) {
+    return `<li>Нормативное основание не задано в реестре для выбранного сочетания.</li>`;
+  }
+
+  return docs.map((doc) => {
+    const clause = doc.clause ? `, ${escapeHtml(doc.clause)}` : "";
+    const tolerance = doc.tolerance ? ` — ${escapeHtml(doc.tolerance)}` : "";
+    const label = `${escapeHtml(doc.document)}${clause}${tolerance}`;
+    return doc.url
+      ? `<li><a href="${escapeHtml(doc.url)}" target="_blank" rel="noopener noreferrer">${label}</a></li>`
+      : `<li>${label}</li>`;
+  }).join("");
+}
+
+function formatAssistantFields(article: KnowledgeArticle) {
+  const fields = article.fields || [];
+  if (fields.length === 0) {
+    return `<li>Параметры контроля не заданы в реестре для выбранного сочетания.</li>`;
+  }
+
+  const visibleFields = fields.slice(0, 6);
+  const hiddenCount = fields.length - visibleFields.length;
+  const fieldItems = visibleFields.map((field) => {
+    const unit = field.unit ? `, ${escapeHtml(field.unit)}` : "";
+    const required = field.required ? "обязательное" : "контрольное";
+    return `<li><strong>${escapeHtml(field.label)}</strong>${unit} <span>${required}</span></li>`;
+  });
+  if (hiddenCount > 0) {
+    fieldItems.push(`<li class="normative-assistant__more">Ещё ${hiddenCount} параметров в статье-источнике</li>`);
+  }
+
+  return fieldItems.join("");
+}
+
+function getAssistantArticles() {
+  const { construction, module, query } = getNormativeAssistantElements();
+  const constructionKey = construction?.value || "";
+  const moduleKey = module?.value || "";
+  const rawQuery = query?.value || "";
+
+  return knowledgeArticles.filter((article) => {
+    if (constructionKey && article.constructionKey !== constructionKey) return false;
+    if (moduleKey && article.moduleKey !== moduleKey) return false;
+    return articleMatchesQuery(article, rawQuery);
+  });
+}
+
+function renderNormativeAssistant() {
+  const { result } = getNormativeAssistantElements();
+  if (!result) return;
+
+  const articles = getAssistantArticles();
+  if (articles.length === 0) {
+    result.innerHTML = `
+      <div class="normative-assistant__empty">
+        По выбранным условиям нормативы не найдены. Попробуйте выбрать другой раздел или упростить запрос.
+      </div>
+    `;
+    return;
+  }
+
+  const primary = articles[0];
+  const related = articles.slice(0, 5);
+  const moduleLabel = KNOWLEDGE_MODULES.find((module) => module.key === primary.moduleKey)?.label || primary.title || "Раздел контроля";
+  const constructionLabel = primary.construction || primary.constructionType || "конструкция";
+  const statusClass = getAssistantStatusClass(primary);
+  const answer = primary.infoMessage || primary.applicability || "Проверьте параметры, указанные в реестре контроля, и приложите нормативные основания к результату проверки.";
+
+  result.innerHTML = `
+    <div class="normative-assistant__answer" data-normative-source-article-id="${escapeHtml(primary.id || "")}">
+      <div class="normative-assistant__summary">
+        <div>
+          <span class="normative-assistant__eyebrow">${escapeHtml(constructionLabel)}</span>
+          <h4>${escapeHtml(moduleLabel)}</h4>
+          <p>${escapeHtml(answer)}</p>
+          <button type="button" class="normative-assistant__source" data-normative-article-id="${escapeHtml(primary.id || "")}">
+            Источник: ${escapeHtml(primary.title || "статья базы знаний")}
+          </button>
+        </div>
+        <span class="normative-assistant__status normative-assistant__status--${escapeHtml(statusClass)}">
+          ${escapeHtml(formatAssistantControlStatus(primary))}
+        </span>
+      </div>
+      <div class="normative-assistant__columns">
+        <section>
+          <h5>Что контролировать</h5>
+          <ul>${formatAssistantFields(primary)}</ul>
+        </section>
+        <section>
+          <h5>Нормативное основание</h5>
+          <ul>${formatAssistantDocs(primary)}</ul>
+        </section>
+      </div>
+      <div class="normative-assistant__articles">
+        <h5>Подходящие материалы</h5>
+        <div>
+          ${related.map((article) => `
+            <button type="button" data-normative-article-id="${escapeHtml(article.id || "")}">
+              ${escapeHtml(article.title || "Статья")}
+            </button>
+          `).join("")}
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function initNormativeAssistant() {
+  const { construction, module, query, ask, result } = getNormativeAssistantElements();
+  if (!construction || !module || !query || !ask || !result) return;
+
+  populateNormativeAssistantConstructions();
+
+  if (!normativeAssistantBound) {
+    ask.addEventListener("click", renderNormativeAssistant);
+    construction.addEventListener("change", renderNormativeAssistant);
+    module.addEventListener("change", renderNormativeAssistant);
+    query.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") renderNormativeAssistant();
+    });
+    result.addEventListener("click", (event) => {
+      const button = (event.target as HTMLElement | null)?.closest<HTMLElement>("[data-normative-article-id]");
+      const articleId = button?.dataset.normativeArticleId;
+      if (!articleId) return;
+      openArticle(articleId);
+    });
+    normativeAssistantBound = true;
+  }
+
+  renderNormativeAssistant();
+}
+
 function loadArticlesForCategory(categoryName, constructionName = null, constructionKey = null) {
   const constructionCard = constructionKey ? getKnowledgeConstructionCard(constructionKey) : null;
   filteredArticles = knowledgeArticles.filter(article => {
+    if (constructionCard && constructionKey) {
+      return article.constructionKey === constructionKey;
+    }
+
     if (constructionKey || constructionName) {
       return article.construction === constructionName ||
         article.constructionType === constructionName ||
-        article.constructionKey === constructionKey ||
-        articleMatchesQuery(article, constructionName || constructionKey);
+        article.constructionKey === constructionKey;
     }
 
     return article.category === categoryName ||

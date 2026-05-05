@@ -12,7 +12,18 @@ import {
   formatLastCheckDate
 } from "../../summary.js";
 import { getProjectCollectionSnapshot, getProjectDocSnapshot } from "../repositories/firestore-repository.js";
-import type { SummaryPdfTextOptions, SummaryRecord } from "../../types/module-records.js";
+import {
+  getIssueStatusLabel,
+  getRuntimeIssueStatus,
+  hasIssueRepeatControl,
+  loadProjectIssues
+} from "../services/issues.js";
+import {
+  loadProjectControlPlan,
+  type ControlPlanResult
+} from "../services/control-plan.js";
+import { loadDocumentRequisites } from "../services/document-requisites.js";
+import type { IssueRecord, SummaryPdfTextOptions, SummaryRecord } from "../../types/module-records.js";
 
 const safeValue = (value) => escapeHtml(value == null ? "" : String(value));
 let summaryInitialized = false;
@@ -254,9 +265,19 @@ const SUMMARY_MODULE_KEYS = Object.keys(SUMMARY_MODULES);
 let summaryStatsProjectId = "";
 let summaryStatsByModule = createEmptySummaryStatsByModule();
 let summaryStatsSource = "none";
+let summaryIssueRecords: IssueRecord[] = [];
+let summaryControlPlan: ControlPlanResult | null = null;
 
 function createEmptyModuleStatus() {
-  return { status: "empty", total: 0, exceeded: 0, lastCheck: null };
+  return {
+    status: "empty",
+    total: 0,
+    exceeded: 0,
+    lastCheck: null,
+    openIssues: 0,
+    resolvedIssues: 0,
+    overdueIssues: 0
+  };
 }
 
 function createEmptySummaryStatsByModule() {
@@ -536,14 +557,9 @@ async function refreshSummaryStatsFromInspections(projectId) {
     summaryStatsProjectId = "";
     summaryStatsByModule = createEmptySummaryStatsByModule();
     summaryStatsSource = "none";
-    return summaryStatsByModule;
-  }
-
-  const analyticsCurrentStats = await getSummaryStatsFromAnalyticsCurrent(projectId);
-  if (analyticsCurrentStats) {
-    summaryStatsProjectId = projectId;
-    summaryStatsByModule = analyticsCurrentStats;
-    summaryStatsSource = "analyticsCurrent";
+    summaryIssueRecords = [];
+    summaryControlPlan = null;
+    renderSummaryIssuesPanel();
     return summaryStatsByModule;
   }
 
@@ -559,16 +575,10 @@ async function refreshSummaryStatsFromInspections(projectId) {
     addRecordToSummaryAggregate(aggregate, moduleKey, inspection, status, timestampMs);
   });
 
-  const legacyFallbackModules = SUMMARY_MODULE_KEYS.filter((moduleKey) => {
-    const bucket = aggregate[moduleKey];
-    return !bucket || bucket.total === 0;
-  });
-  if (legacyFallbackModules.length > 0) {
-    console.log("[Summary] Fallback to module collections for modules without inspections data:", legacyFallbackModules);
-  }
+  console.log("[Summary] Merge inspections with module collections:", SUMMARY_MODULE_KEYS);
 
   await Promise.all(
-    legacyFallbackModules.map(async (moduleKey) => {
+    SUMMARY_MODULE_KEYS.map(async (moduleKey) => {
       const collectionName = SUMMARY_MODULES[moduleKey]?.collection;
       if (!collectionName) return;
 
@@ -583,9 +593,203 @@ async function refreshSummaryStatsFromInspections(projectId) {
   );
 
   summaryStatsProjectId = projectId;
-  summaryStatsByModule = finalizeSummaryAggregate(aggregate);
-  summaryStatsSource = "inspections+legacy";
+  const mergedStats = finalizeSummaryAggregate(aggregate);
+  const totalMergedChecks = SUMMARY_MODULE_KEYS.reduce(
+    (sum, moduleKey) => sum + (mergedStats[moduleKey]?.total || 0),
+    0
+  );
+
+  summaryStatsByModule = totalMergedChecks > 0
+    ? mergedStats
+    : (await getSummaryStatsFromAnalyticsCurrent(projectId)) || mergedStats;
+  await applyIssueCountsToSummaryStats(projectId, summaryStatsByModule);
+  await refreshSummaryControlPlan(projectId);
+  summaryStatsSource = totalMergedChecks > 0 ? "inspections+collections" : "analyticsCurrent";
   return summaryStatsByModule;
+}
+
+async function refreshSummaryControlPlan(projectId) {
+  if (!projectId) {
+    summaryControlPlan = null;
+    return null;
+  }
+
+  try {
+    summaryControlPlan = await loadProjectControlPlan(projectId, {
+      fallbackConstruction: construction?.dataset?.machineValue || construction?.value || "",
+      fallbackConstructionLabel: construction?.dataset?.displayLabel || construction?.value || ""
+    });
+  } catch (error) {
+    console.warn(`[Summary] Не удалось загрузить план контроля для проекта ${projectId}:`, error);
+    summaryControlPlan = null;
+  }
+
+  return summaryControlPlan;
+}
+
+async function applyIssueCountsToSummaryStats(projectId, statsByModule) {
+  if (!projectId || !statsByModule) return statsByModule;
+
+  let issues: IssueRecord[] = [];
+  try {
+    issues = await loadProjectIssues(projectId);
+    summaryIssueRecords = issues;
+  } catch (error) {
+    console.warn(`[Summary] Не удалось загрузить замечания для проекта ${projectId}:`, error);
+    summaryIssueRecords = [];
+    renderSummaryIssuesPanel();
+    return statsByModule;
+  }
+
+  issues.forEach((issue) => {
+    const moduleKey = normalizeSummaryModuleKey(issue?.moduleKey) || resolveSummaryModuleKey(issue);
+    const bucket = statsByModule[moduleKey];
+    if (!bucket) return;
+
+    const runtimeStatus = getRuntimeIssueStatus(issue);
+    if (runtimeStatus === "closed") {
+      bucket.resolvedIssues = (bucket.resolvedIssues || 0) + 1;
+    } else {
+      bucket.openIssues = (bucket.openIssues || 0) + 1;
+      if (runtimeStatus === "overdue") {
+        bucket.overdueIssues = (bucket.overdueIssues || 0) + 1;
+      }
+    }
+  });
+
+  SUMMARY_MODULE_KEYS.forEach((moduleKey) => {
+    const bucket = statsByModule[moduleKey];
+    if (!bucket || bucket.total === 0) return;
+
+    if ((bucket.openIssues || 0) > 0 || (bucket.exceeded || 0) > (bucket.resolvedIssues || 0)) {
+      bucket.status = "exceeded";
+      return;
+    }
+
+    if ((bucket.exceeded || 0) > 0 && (bucket.resolvedIssues || 0) >= bucket.exceeded) {
+      bucket.status = "resolved";
+    }
+  });
+
+  return statsByModule;
+}
+
+function formatSummaryIssueDate(value, emptyLabel = "—") {
+  const ms = parseSummaryTimestampMs(value);
+  return ms != null ? formatLastCheckDate(ms) : emptyLabel;
+}
+
+function getSummaryIssueModuleLabel(issue: IssueRecord) {
+  const moduleKey = normalizeSummaryModuleKey(issue?.moduleKey) || resolveSummaryModuleKey(issue);
+  return SUMMARY_MODULES[moduleKey]?.label || String(issue?.module || "Проверка");
+}
+
+function getSummaryIssueStatusClass(issue: IssueRecord) {
+  const status = getRuntimeIssueStatus(issue);
+  if (status === "closed") return "closed";
+  if (status === "ready_for_review") return "ready";
+  if (status === "overdue") return "overdue";
+  if (status === "in_progress") return "progress";
+  return "open";
+}
+
+function getSummaryIssueStatusLabel(issue: IssueRecord) {
+  return getIssueStatusLabel(getRuntimeIssueStatus(issue));
+}
+
+function getSummaryIssueRepeatLabel(issue: IssueRecord) {
+  if (!hasIssueRepeatControl(issue)) return "не выполнен";
+  const repeatStatus = String(issue.repeatControlStatus || "ok");
+  const statusLabel = repeatStatus === "exceeded"
+    ? "с отклонением"
+    : repeatStatus === "pending"
+      ? "ожидает результата"
+      : "в норме";
+  const repeatDate = formatSummaryIssueDate(issue.repeatControlAt, "дата не указана");
+  return `выполнен ${repeatDate}, ${statusLabel}`;
+}
+
+function buildSummaryIssueReportItems(issues: IssueRecord[] = summaryIssueRecords) {
+  return issues
+    .map((issue) => {
+      const runtimeStatus = getRuntimeIssueStatus(issue);
+      return {
+        title: String(issue.title || `${getSummaryIssueModuleLabel(issue)}: ${issue.constructionLabel || issue.construction || "проверка"}`),
+        module: getSummaryIssueModuleLabel(issue),
+        construction: String(issue.constructionLabel || issue.construction || "конструкция не указана"),
+        context: String(issue.context || "контекст не указан"),
+        description: String(issue.description || "Описание нарушения не заполнено."),
+        correctiveAction: String(issue.correctiveAction || "Выполнить корректирующее действие и повторный контроль."),
+        status: runtimeStatus,
+        statusLabel: getSummaryIssueStatusLabel(issue),
+        statusClass: getSummaryIssueStatusClass(issue),
+        dueDate: formatSummaryIssueDate(issue.dueDate, "срок не задан"),
+        createdAtMs: parseSummaryTimestampMs(issue.createdAt) || 0,
+        closedAt: formatSummaryIssueDate(issue.closedAt, "не закрыто"),
+        repeatLinked: hasIssueRepeatControl(issue),
+        repeatShortLabel: hasIssueRepeatControl(issue) ? "Выполнен" : "Нет",
+        repeatLabel: getSummaryIssueRepeatLabel(issue)
+      };
+    })
+    .sort((a, b) => {
+      const order = { overdue: 0, issued: 1, in_progress: 2, ready_for_review: 3, draft: 4, closed: 5 };
+      const orderA = order[a.status] ?? 9;
+      const orderB = order[b.status] ?? 9;
+      if (orderA !== orderB) return orderA - orderB;
+      return b.createdAtMs - a.createdAtMs;
+    });
+}
+
+function renderSummaryIssuesPanel() {
+  const panel = document.getElementById("summaryIssuesPanel");
+  const statsEl = document.getElementById("summaryIssuesStats");
+  const emptyEl = document.getElementById("summaryIssuesEmpty");
+  const listEl = document.getElementById("summaryIssuesList");
+  if (!panel || !statsEl || !emptyEl || !listEl) return;
+
+  const items = buildSummaryIssueReportItems();
+  const openCount = items.filter((item) => item.status !== "closed").length;
+  const overdueCount = items.filter((item) => item.status === "overdue").length;
+  const closedCount = items.filter((item) => item.status === "closed").length;
+  const repeatCount = items.filter((item) => item.repeatLinked).length;
+
+  statsEl.innerHTML = `
+    <span>Открыто: <strong>${openCount}</strong></span>
+    <span>Просрочено: <strong>${overdueCount}</strong></span>
+    <span>Контроль: <strong>${repeatCount}</strong></span>
+    <span>Закрыто: <strong>${closedCount}</strong></span>
+  `;
+
+  if (items.length === 0) {
+    panel.dataset.state = "empty";
+    emptyEl.hidden = false;
+    listEl.innerHTML = "";
+    return;
+  }
+
+  panel.dataset.state = "filled";
+  emptyEl.hidden = true;
+  listEl.innerHTML = `
+    <div class="summary-issue-registry__header" aria-hidden="true">
+      <span>Раздел</span>
+      <span>Конструкция</span>
+      <span>Статус</span>
+    </div>
+    ${items.map((item) => `
+      <div class="summary-issue-registry__item summary-issue-registry__item--${safeValue(item.statusClass)}">
+        <div class="summary-issue-registry__row">
+          <span class="summary-issue-registry__module" data-label="Раздел">${safeValue(item.module)}</span>
+          <span class="summary-issue-registry__construction" data-label="Конструкция">
+            ${safeValue(item.construction)}
+            <small>${safeValue(item.context)}</small>
+          </span>
+          <span class="summary-issue-registry__status summary-issue-registry__status--${safeValue(item.statusClass)}" data-label="Статус">
+            ${safeValue(item.statusLabel)}
+          </span>
+        </div>
+      </div>
+    `).join("")}
+  `;
 }
 
 function getSummaryModuleStatus(moduleKey) {
@@ -640,6 +844,7 @@ async function updateSummaryModuleCards() {
 
   // Обновляем текст итога (убираем "Нет сохранённых проверок" если есть данные)
   updateSummaryTextPlaceholder(geoStatus, reinfStatus, geomStatus, strengthStatus);
+  renderSummaryIssuesPanel();
 }
 
 /**
@@ -667,6 +872,8 @@ function formatSummaryStatusBadge(status) {
   switch (status) {
     case "ok":
       return "Соответствует";
+    case "resolved":
+      return "Замечания закрыты";
     case "exceeded":
       return "Есть отклонения";
     case "empty":
@@ -705,6 +912,12 @@ function updateModuleCard(moduleName, moduleStatus, moduleKey) {
   const safeLastCheckText = safeValue(lastCheckText);
   const safeTotal = formatSummaryMetricValue(moduleStatus.total, hasData, "Пока нет");
   const safeExceeded = formatSummaryMetricValue(moduleStatus.exceeded, hasData, "Нет данных");
+  const openIssues = Number(moduleStatus.openIssues || 0);
+  const resolvedIssues = Number(moduleStatus.resolvedIssues || 0);
+  const overdueIssues = Number(moduleStatus.overdueIssues || 0);
+  const issuesText = hasData
+    ? `${openIssues} откр. / ${resolvedIssues} закр.${overdueIssues > 0 ? ` / ${overdueIssues} проср.` : ""}`
+    : "Нет данных";
   
   statsEl.innerHTML = `
     <span class="summary-module-stat">
@@ -714,6 +927,10 @@ function updateModuleCard(moduleName, moduleStatus, moduleKey) {
     <span class="summary-module-stat">
       <span class="summary-module-stat-label">Отклонений</span>
       <strong class="summary-module-stat-value">${safeExceeded}</strong>
+    </span>
+    <span class="summary-module-stat summary-module-stat--wide">
+      <span class="summary-module-stat-label">Замечаний</span>
+      <strong class="summary-module-stat-value">${safeValue(issuesText)}</strong>
     </span>
     <span class="summary-module-stat summary-module-stat--wide">
       <span class="summary-module-stat-label">Последняя проверка</span>
@@ -785,6 +1002,8 @@ function updateSummaryParams() {
  */
 function getModuleReportStatusText(status) {
   if (status.total === 0) return "Проверки не выполнялись";
+  if (status.openIssues > 0) return "Есть открытые замечания";
+  if (status.exceeded > 0 && status.resolvedIssues >= status.exceeded) return "Замечания закрыты";
   return status.exceeded > 0 ? "Выявлены отклонения" : "Соответствует требованиям";
 }
 
@@ -809,11 +1028,23 @@ function buildSummaryReportModel() {
 
   const totalChecks = modules.reduce((sum, module) => sum + module.total, 0);
   const totalExceeded = modules.reduce((sum, module) => sum + module.exceeded, 0);
+  const totalOpenIssues = modules.reduce((sum, module) => sum + Number(module.openIssues || 0), 0);
+  const totalResolvedIssues = modules.reduce((sum, module) => sum + Number(module.resolvedIssues || 0), 0);
+  const issues = buildSummaryIssueReportItems();
+  const controlPlan = summaryControlPlan;
+  const missingRequiredChecks = controlPlan?.summary?.missingTasks || 0;
+  const blockedConstructions = controlPlan?.summary?.blockedRows || 0;
 
   const basisText = "Заключение сформировано по результатам проверок, выполненных в рамках строительного контроля (технического надзора) по объекту.";
   let conclusionText = "";
   if (totalChecks === 0) {
     conclusionText = "Проверки по выбранному разделу не выполнялись. Для формирования окончательного заключения необходимо выполнить строительный контроль по установленному перечню параметров.";
+  } else if (blockedConstructions > 0 || missingRequiredChecks > 0) {
+    conclusionText = "По плану контроля есть конструкции, которые нельзя принимать без устранения отклонений или выполнения обязательных проверок. Перед окончательной приёмкой требуется закрыть блокирующие пункты ITP и обновить итоговое заключение.";
+  } else if (totalOpenIssues > 0) {
+    conclusionText = "По результатам выполненных проверок есть открытые замечания. Требуется выполнить корректирующие мероприятия, зафиксировать устранение и провести повторный контроль по связанным строкам журнала.";
+  } else if (totalExceeded > 0 && totalResolvedIssues >= totalExceeded) {
+    conclusionText = "По результатам проверок ранее были выявлены отклонения, по которым замечания закрыты. Для окончательной приёмки необходимо хранить связь с повторным контролем и подтверждающими записями журнала.";
   } else if (totalExceeded === 0) {
     conclusionText = "По результатам выполненных проверок отклонений, превышающих допустимые значения, не выявлено. Проверенные параметры соответствуют установленным требованиям проектной и нормативной документации.";
   } else {
@@ -829,8 +1060,14 @@ function buildSummaryReportModel() {
     systemLine: "Документ сформирован в системе «Технадзор онлайн».",
     basisText,
     modules,
+    issues,
+    controlPlan,
+    missingRequiredChecks,
+    blockedConstructions,
     totalChecks,
     totalExceeded,
+    totalOpenIssues,
+    totalResolvedIssues,
     conclusionText
   };
 }
@@ -858,14 +1095,57 @@ function buildSummaryReportText() {
     lines.push(module.name);
     lines.push(`  Количество выполненных проверок: ${module.total}`);
     lines.push(`  Выявлено превышений: ${module.exceeded}`);
+    lines.push(`  Открытых замечаний: ${module.openIssues || 0}`);
+    lines.push(`  Закрытых замечаний: ${module.resolvedIssues || 0}`);
     lines.push(`  Статус: ${getModuleReportStatusText(module)}`);
     lines.push("");
   });
 
   lines.push(`Итого количество выполненных проверок: ${model.totalChecks}`);
   lines.push(`Итого выявлено превышений: ${model.totalExceeded}`);
+  lines.push(`Итого открытых замечаний: ${model.totalOpenIssues}`);
+  lines.push(`Итого закрытых замечаний: ${model.totalResolvedIssues}`);
   lines.push("");
-  lines.push("3. Итоговое заключение");
+  lines.push("3. Замечания и корректирующие действия");
+  if (model.issues.length === 0) {
+    lines.push("Замечания по результатам проверок не создавались.");
+  } else {
+    model.issues.forEach((item, index) => {
+      lines.push(`${index + 1}. ${item.title}`);
+      lines.push(`  Раздел: ${item.module}`);
+      lines.push(`  Конструкция / контекст: ${item.construction}, ${item.context}`);
+      lines.push(`  Нарушение: ${item.description}`);
+      lines.push(`  Корректирующее действие: ${item.correctiveAction}`);
+      lines.push(`  Статус замечания: ${item.statusLabel}; срок: ${item.dueDate}`);
+      lines.push(`  Повторный контроль: ${item.repeatLabel}`);
+      lines.push(`  Закрытие: ${item.closedAt}`);
+      lines.push("");
+    });
+  }
+  lines.push("");
+  lines.push("4. План контроля / ITP");
+  if (!model.controlPlan || model.controlPlan.rows.length === 0) {
+    lines.push("План контроля не сформирован: нет данных по конструкциям объекта.");
+  } else {
+    lines.push(`Конструкций в плане: ${model.controlPlan.summary.totalRows}`);
+    lines.push(`Готово к приёмке: ${model.controlPlan.summary.readyRows}`);
+    lines.push(`Нельзя принимать: ${model.controlPlan.summary.blockedRows}`);
+    lines.push(`Невыполненных обязательных проверок: ${model.controlPlan.summary.missingTasks}`);
+    model.controlPlan.rows.slice(0, 12).forEach((row, index) => {
+      lines.push(`${index + 1}. ${row.displayName}: ${row.statusLabel}, прогресс ${row.progressDone}/${row.progressTotal}`);
+      const blockers = row.tasks
+        .filter((task) => task.status === "required" || task.status === "deviation" || task.status === "issue_open")
+        .map((task) => `${task.label}: ${task.statusLabel}`);
+      if (blockers.length > 0) {
+        lines.push(`  Требует внимания: ${blockers.join("; ")}`);
+      }
+    });
+    if (model.controlPlan.rows.length > 12) {
+      lines.push(`Дополнительно в плане: ${model.controlPlan.rows.length - 12} конструкций.`);
+    }
+  }
+  lines.push("");
+  lines.push("5. Итоговое заключение");
   lines.push(model.conclusionText);
   lines.push("");
   lines.push(`Инженер технического контроля: ${model.engineer}`);
@@ -1081,6 +1361,7 @@ function initSummaryHandlers() {
           const reinfSummary = getReinfModuleStatus();
           const geomSummary = getGeomModuleStatus();
           const strengthSummary = getStrengthModuleStatus();
+          const localReportModel = buildSummaryReportModel();
 
           try {
             const payload = {
@@ -1106,7 +1387,9 @@ function initSummaryHandlers() {
                 strength: {
                   total: strengthSummary.total,
                   exceeded: strengthSummary.exceeded
-                }
+                },
+                issues: localReportModel.issues,
+                controlPlan: localReportModel.controlPlan
               }
             };
 
@@ -1279,12 +1562,27 @@ function initSummaryHandlers() {
 
           const report = buildSummaryReportText();
           const model = report.model;
+          const requisites = await loadDocumentRequisites(currentProjectId, {
+            kind: "summary",
+            date: model.date,
+            projectNameFallback: model.projectName,
+            engineerFallback: model.engineer
+          });
 
-          const pageLeft = 20;
-          const pageRight = 190;
-          const pageBottom = 280;
+          const documentCode = requisites.documentCode;
+          const pageWidth = 210;
+          const pageHeight = 297;
+          const frameLeft = 20;
+          const frameTop = 5;
+          const frameRight = 5;
+          const frameBottom = 5;
+          const titleBlockHeight = 40;
+          const pageLeft = frameLeft + 4;
+          const pageRight = pageWidth - frameRight - 4;
+          const pageBottom = pageHeight - frameBottom - titleBlockHeight - 5;
           const contentWidth = pageRight - pageLeft;
-          let y = 18;
+          let pageNumber = 1;
+          let y = frameTop + 12;
 
           const applyFont = (size = 10, strong = false) => {
             doc.setFontSize(size);
@@ -1295,13 +1593,75 @@ function initSummaryHandlers() {
             }
           };
 
-          const ensureSpace = (heightNeeded = 6) => {
-            if (y + heightNeeded <= pageBottom) return;
-            doc.addPage();
-            y = 18;
+          const drawFrameAndTitleBlock = () => {
+            const frameWidth = pageWidth - frameLeft - frameRight;
+            const frameHeight = pageHeight - frameTop - frameBottom;
+            const stampX = pageWidth - frameRight - 180;
+            const stampY = pageHeight - frameBottom - titleBlockHeight;
+            const stampW = 180;
+            const stampH = titleBlockHeight;
+            const signaturesW = 62;
+            const metaX = stampX + stampW - 42;
+
+            doc.setLineWidth(0.25);
+            doc.rect(frameLeft, frameTop, frameWidth, frameHeight);
+            doc.rect(stampX, stampY, stampW, stampH);
+            doc.line(stampX + signaturesW, stampY, stampX + signaturesW, stampY + stampH);
+            doc.line(metaX, stampY, metaX, stampY + stampH);
+            doc.line(metaX + 14, stampY, metaX + 14, stampY + stampH);
+            doc.line(metaX + 28, stampY, metaX + 28, stampY + stampH);
+
+            [8, 16, 24, 32].forEach((offset) => {
+              doc.line(stampX, stampY + offset, stampX + signaturesW, stampY + offset);
+            });
+            [12, 28, 44].forEach((offset) => {
+              doc.line(stampX + offset, stampY, stampX + offset, stampY + stampH);
+            });
+            doc.line(stampX + signaturesW, stampY + 20, metaX, stampY + 20);
+            doc.line(stampX + signaturesW, stampY + 30, metaX, stampY + 30);
+
+            applyFont(5.8);
+            doc.text("Изм.", stampX + 2, stampY + 5.2);
+            doc.text("Кол.", stampX + 14, stampY + 5.2);
+            doc.text("Лист", stampX + 30, stampY + 5.2);
+            doc.text("N док.", stampX + 46, stampY + 5.2);
+            ["Разраб.", "Проверил", "Н. контр.", "Утв."].forEach((label, index) => {
+              doc.text(label, stampX + 2, stampY + 13 + index * 8);
+            });
+
+            applyFont(7, true);
+            doc.text(documentCode, stampX + signaturesW + 3, stampY + 8);
+            applyFont(6.4);
+            doc.text(requisites.projectName, stampX + signaturesW + 3, stampY + 16, { maxWidth: metaX - stampX - signaturesW - 6 });
+            applyFont(7, true);
+            doc.text("Итоговое заключение", stampX + signaturesW + 3, stampY + 26, { maxWidth: metaX - stampX - signaturesW - 6 });
+            applyFont(5.8);
+            doc.text("Лист", metaX + 2, stampY + 8);
+            doc.text(String(pageNumber), metaX + 17, stampY + 8);
+            doc.text("Листов", metaX + 30, stampY + 8);
+            doc.text("Стадия", metaX + 2, stampY + 22);
+            doc.text(requisites.stage, metaX + 18, stampY + 22, { maxWidth: 8 });
+            doc.text("Дата", metaX + 2, stampY + 34);
+            doc.text(requisites.documentDate, metaX + 16, stampY + 34, { maxWidth: 25 });
+            applyFont(6);
+            doc.text("Формат A4. Документ сформирован Tehnadzor.", frameLeft + 2, pageHeight - frameBottom - 1.5);
+          };
+
+          const addOfficialPage = () => {
+            if (pageNumber > 1) {
+              doc.addPage();
+            }
+            y = frameTop + 12;
             if (pdfFontLoaded) {
               doc.setFont("Roboto", "normal");
             }
+            drawFrameAndTitleBlock();
+          };
+
+          const ensureSpace = (heightNeeded = 6) => {
+            if (y + heightNeeded <= pageBottom) return;
+            pageNumber += 1;
+            addOfficialPage();
           };
 
           const drawWrapped = (line, options: SummaryPdfTextOptions = {}) => {
@@ -1323,87 +1683,120 @@ function initSummaryHandlers() {
           };
 
           const drawSectionTitle = (title) => {
-            y += 2;
-            drawWrapped(title, { size: 12, strong: true, lineHeight: 6 });
-            y += 1;
+            y += 3;
+            ensureSpace(11);
+            applyFont(10, true);
+            doc.text(title, pageLeft, y);
+            y += 5;
+            doc.line(pageLeft, y, pageRight, y);
+            y += 4;
           };
 
-          applyFont(16, true);
-          doc.text(model.title, (pageLeft + pageRight) / 2, y, { align: "center" });
-          y += 7;
-          doc.setLineWidth(0.5);
-          doc.line(pageLeft, y, pageRight, y);
-          y += 8;
-
-          drawSectionTitle("1. Общие сведения");
-          drawWrapped(`Объект: ${model.projectName}`);
-          drawWrapped(`Вид конструкций / раздел проверок: ${model.construction}`);
-          drawWrapped(`Дата формирования документа: ${model.date}`);
-          drawWrapped(`ФИО инженера: ${model.engineer}`);
-          drawWrapped(model.systemLine);
-          y += 1;
-          drawWrapped("Основание:", { strong: true });
-          drawWrapped(`«${model.basisText}»`);
-
-          drawSectionTitle("2. Результаты проверок");
-
-          const tableColumns = [
-            { title: "Раздел проверок", width: 48 },
-            { title: "Количество выполненных проверок", width: 46 },
-            { title: "Выявлено превышений", width: 30 },
-            { title: "Статус", width: 46 }
-          ];
-
-          const drawTableRow = (cells, isHeader = false) => {
+          const drawTableRow = (cells, widths, isHeader = false) => {
             const cellPaddingX = 1.2;
-            const textLineHeight = 4.2;
+            const textLineHeight = isHeader ? 3.8 : 3.9;
+            const fontSize = isHeader ? 6.6 : 6.4;
             const wrappedCells = cells.map((cell, idx) =>
-              doc.splitTextToSize(String(cell ?? ""), tableColumns[idx].width - 2 * cellPaddingX)
+              doc.splitTextToSize(String(cell ?? ""), widths[idx] - 2 * cellPaddingX)
             );
             const maxLines = Math.max(...wrappedCells.map((arr) => Math.max(arr.length, 1)));
-            const rowHeight = Math.max(7, maxLines * textLineHeight + 2);
+            const rowHeight = Math.max(isHeader ? 8 : 9, maxLines * textLineHeight + 3);
 
-            ensureSpace(rowHeight + 1);
+            ensureSpace(rowHeight + 2);
 
             let x = pageLeft;
-            tableColumns.forEach((col, idx) => {
-              doc.rect(x, y, col.width, rowHeight);
-              applyFont(isHeader ? 9.5 : 9, isHeader);
+            widths.forEach((width, idx) => {
+              doc.rect(x, y, width, rowHeight);
+              applyFont(fontSize, isHeader);
               const linesInCell = wrappedCells[idx].length > 0 ? wrappedCells[idx] : [""];
               linesInCell.forEach((linePart, lineIdx) => {
                 doc.text(linePart, x + cellPaddingX, y + 4 + lineIdx * textLineHeight);
               });
-              x += col.width;
+              x += width;
             });
 
             y += rowHeight;
           };
 
-          drawTableRow(tableColumns.map((col) => col.title), true);
+          addOfficialPage();
+
+          applyFont(13, true);
+          doc.text(model.title, (pageLeft + pageRight) / 2, y, { align: "center" });
+          y += 9;
+
+          drawSectionTitle("1. Реквизиты документа");
+          const detailsWidths = [32, 55, 32, 58];
+          drawTableRow(["Объект", requisites.projectName, "Обозначение", documentCode], detailsWidths);
+          drawTableRow(["Адрес", requisites.projectAddress, "Дата", requisites.documentDate], detailsWidths);
+          drawTableRow(["Заказчик", requisites.customerName, "Тех. заказчик", requisites.technicalCustomerName], detailsWidths);
+          drawTableRow(["Подрядчик", requisites.contractorName, "Технадзор", requisites.technicalSupervisorCompany], detailsWidths);
+          drawTableRow(["Основание", model.basisText, "Раздел", model.construction], detailsWidths);
+
+          drawSectionTitle("2. Сводные показатели");
+          const summaryWidths = [48, 18, 48, 18, 27, 18];
+          drawTableRow(["Всего проверок", model.totalChecks, "Выявлено отклонений", model.totalExceeded, "Открыто", model.totalOpenIssues], summaryWidths);
+          drawTableRow(["Замечаний закрыто", model.totalResolvedIssues, "Блокировано ITP", model.blockedConstructions, "Не хватает", model.missingRequiredChecks], summaryWidths);
+
+          drawSectionTitle("3. Результаты по разделам контроля");
+          const moduleWidths = [42, 24, 24, 34, 53];
+          drawTableRow(["Раздел", "Проверок", "Отклонений", "Замечаний", "Статус"], moduleWidths, true);
           model.modules.forEach((module) => {
             drawTableRow(
               [
                 module.name,
                 module.total,
                 module.exceeded,
+                `${module.openIssues || 0} откр. / ${module.resolvedIssues || 0} закр.`,
                 getModuleReportStatusText(module)
               ],
-              false
+              moduleWidths
             );
           });
 
-          y += 4;
-          drawWrapped(`Итого количество выполненных проверок: ${model.totalChecks}`, { strong: true });
-          drawWrapped(`Итого выявлено превышений: ${model.totalExceeded}`, { strong: true });
+          drawSectionTitle("4. Замечания и готовность ITP");
+          const activeIssues = model.issues.filter((item) => item.statusLabel !== "Закрыто").slice(0, 6);
+          const issueWidths = [8, 45, 39, 34, 51];
+          drawTableRow(["N", "Замечание / конструкция", "Раздел", "Статус", "Действие"], issueWidths, true);
+          if (activeIssues.length) {
+            activeIssues.forEach((item, index) => {
+              drawTableRow(
+                [
+                  index + 1,
+                  `${item.title}; ${item.construction}`,
+                  item.module,
+                  item.statusLabel,
+                  item.correctiveAction
+                ],
+                issueWidths
+              );
+            });
+          } else {
+            drawTableRow(["—", "Активных замечаний нет", "—", "—", "Дополнительные действия не требуются"], issueWidths);
+          }
 
-          drawSectionTitle("3. Итоговое заключение");
-          drawWrapped(model.conclusionText);
+          const itpRows = model.controlPlan
+            ? model.controlPlan.rows
+                .filter((row) => row.status !== "ready")
+                .slice(0, 6)
+            : [];
+          const itpWidths = [8, 55, 36, 28, 50];
+          drawTableRow(["N", "Конструкция", "Готовность", "Прогресс", "Следующее действие"], itpWidths, true);
+          if (itpRows.length) {
+            itpRows.forEach((row, index) => {
+              drawTableRow([index + 1, row.displayName, row.statusLabel, `${row.progressDone}/${row.progressTotal}`, row.nextActionLabel], itpWidths);
+            });
+          } else {
+            drawTableRow(["—", "Блокирующих позиций ITP нет", "—", "—", "Дополнительные действия не требуются"], itpWidths);
+          }
 
-          y += 6;
-          drawWrapped(`Инженер технического контроля: ${model.engineer}`);
-          drawWrapped("Подпись: ____________________");
-          drawWrapped(`Дата: ${model.date}`);
-          drawWrapped("Документ сформирован автоматически.");
+          drawSectionTitle("5. Итоговое заключение");
+          drawWrapped(model.conclusionText, { size: 8.2, lineHeight: 4.6 });
+
+          drawSectionTitle("6. Подписи ответственных лиц");
+          const signWidths = [45, 45, 34, 53];
+          drawTableRow(["Ответственный инженер", requisites.engineerName, "Подпись / дата", "____________ / ____________"], signWidths);
+          drawTableRow(["Представитель подрядчика", requisites.contractorName, "Подпись / дата", "____________ / ____________"], signWidths);
+          drawTableRow(["Представитель заказчика", requisites.customerName, "Подпись / дата", "____________ / ____________"], signWidths);
 
           const safeProjectName = model.projectName.replace(/[^a-zA-Zа-яА-Я0-9]/g, "_").substring(0, 30);
           const safeConstruction = model.construction.replace(/[^a-zA-Zа-яА-Я0-9]/g, "_");

@@ -638,7 +638,6 @@ function positionConfirmPopover(popover: HTMLDivElement, anchor: HTMLElement | n
 export async function showConfirm(message, options: { anchor?: HTMLElement | null } = {}) {
   return new Promise<boolean>((resolve) => {
     activeConfirmPopoverClose?.(false);
-    setGlobalScrollLock(true);
 
     const anchor = resolveConfirmAnchor(options.anchor);
     const popover = document.createElement("div");
@@ -693,7 +692,6 @@ export async function showConfirm(message, options: { anchor?: HTMLElement | nul
         anchor.focus();
       }
 
-      setGlobalScrollLock(false);
       resolve(result);
     };
 

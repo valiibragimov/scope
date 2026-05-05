@@ -1,6 +1,10 @@
 "use strict";
 
 import type { BimElement, BimElementType } from "../../types/domain.js";
+import {
+  analyzeIfcModelDiagnostics,
+  type IfcDiagnosticSummary
+} from "./ifc-diagnostics.js";
 
 const SUPPORTED_IFC_TYPES = Object.freeze({
   IFCSLAB: "slab",
@@ -48,6 +52,7 @@ interface ParseIfcResult {
   importedCount: number;
   countsByType: Partial<Record<BimElementType, number>>;
   countsByLabel: Record<string, number>;
+  diagnosticSummary: IfcDiagnosticSummary;
   elements: Array<Partial<BimElement> & Record<string, unknown>>;
 }
 
@@ -1880,6 +1885,8 @@ function parseIfcElements(ifcText, options: ParseIfcOptions = {}): ParseIfcResul
     });
   }
 
+  const diagnosticSummary = analyzeIfcModelDiagnostics(ifcText, elements);
+
   return {
     sourceModelId,
     fileName,
@@ -1891,6 +1898,7 @@ function parseIfcElements(ifcText, options: ParseIfcOptions = {}): ParseIfcResul
         count
       ])
     ),
+    diagnosticSummary,
     elements
   };
 }

@@ -18,6 +18,17 @@ import {
   deleteInspectionAndRefreshAnalytics,
   saveInspectionAndRefreshAnalytics
 } from "../services/inspection-sync.js";
+import {
+  createIssuePayloadFromJournalEntry,
+  createProjectIssue,
+  deleteProjectIssue,
+  getIssueStatusLabel,
+  getRuntimeIssueStatus,
+  hasIssueRepeatControl,
+  linkProjectIssueRepeatControl,
+  loadProjectIssues,
+  updateProjectIssueStatus
+} from "../services/issues.js";
 import { getAuth } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-auth.js";
 import { showNotification, showConfirm } from "../../utils.js";
 import {
@@ -28,7 +39,7 @@ import {
   formatJournalTimestamp,
   deleteJournalEntry
 } from "../../journal.js";
-import type { JournalEntryRecord } from "../../types/module-records.js";
+import type { IssueRecord, JournalEntryRecord } from "../../types/module-records.js";
 
 // ============================
 //  Журнал проверок
@@ -41,6 +52,12 @@ let journalStatusFilter = "all";
 let journalStatusFilterButtons = [];
 let journalStatTotalEl = null;
 let journalStatExceededEl = null;
+let journalIssueListEl = null;
+let journalIssueEmptyEl = null;
+let journalIssueOpenCountEl = null;
+let journalIssueOverdueCountEl = null;
+let issueRecords: IssueRecord[] = [];
+const ISSUE_REPEAT_CONTROL_STORAGE_KEY = "tehnadzor_repeat_control";
 
 function getEntryConstructionKey(value) {
   return normalizeConstructionKey(value, String(value || "").trim());
@@ -57,6 +74,88 @@ function getEntryConstructionLabel(entry) {
 
 function matchesConstructionValue(left, right) {
   return getEntryConstructionKey(left) === getEntryConstructionKey(right);
+}
+
+function normalizeJournalMatchText(value) {
+  return String(value || "")
+    .trim()
+    .toLocaleLowerCase("ru")
+    .replace(/[×xх]/g, "-")
+    .replace(/[,\s]+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "");
+}
+
+function buildGeoNodeContextCandidates(node) {
+  if (!node || typeof node !== "object") return [];
+
+  const candidates = new Set();
+  const floor = String(node.floor || "").trim();
+  const add = (value) => {
+    const normalized = normalizeJournalMatchText(value);
+    if (normalized) candidates.add(normalized);
+    if (floor && value) {
+      const withFloor = normalizeJournalMatchText(`${floor}-${value}`);
+      if (withFloor) candidates.add(withFloor);
+    }
+  };
+
+  add(node.location);
+
+  const letter = String(node.letter || "").trim();
+  const number = String(node.number || "").trim();
+  if (letter && number) {
+    add(`${letter}-${number}`);
+    add(`${letter} × ${number}`);
+  }
+
+  const letterFrom = String(node.axisLetterFrom || "").trim();
+  const letterTo = String(node.axisLetterTo || "").trim();
+  const numberFrom = String(node.axisNumberFrom || "").trim();
+  const numberTo = String(node.axisNumberTo || "").trim();
+  if (letterFrom && letterTo && numberFrom) {
+    add(`${numberFrom}, ${letterFrom}-${letterTo}`);
+    add(`${letterFrom}-${letterTo}, ${numberFrom}`);
+  }
+  if (letterFrom && numberFrom && numberTo) {
+    add(`${numberFrom}-${numberTo}, ${letterFrom}`);
+    add(`${letterFrom}, ${numberFrom}-${numberTo}`);
+  }
+  if (letterFrom && letterTo && numberFrom && numberTo) {
+    add(`${letterFrom}-${letterTo}, ${numberFrom}-${numberTo}`);
+    add(`${letterFrom}-${letterTo} x ${numberFrom}-${numberTo}`);
+  }
+
+  if (node.type === "columns") {
+    add([node.columnMark, floor].filter(Boolean).join(", "));
+  } else if (node.type === "walls") {
+    add(floor ? `Этаж ${floor}, стены` : "стены");
+  } else if (node.type === "beams") {
+    add(floor ? `Этаж ${floor}, балки` : "балки");
+  }
+
+  return Array.from(candidates);
+}
+
+function findGeoNodeKeyForJournalEntry(entry) {
+  const sourceId = String(entry?.sourceId || "").trim();
+  if (sourceId && nodes.has(sourceId)) return sourceId;
+
+  const entryContext = normalizeJournalMatchText(entry?.context);
+  if (!entryContext) return null;
+
+  for (const [key, node] of nodes.entries()) {
+    if (!node) continue;
+    if (entry.construction && node.construction && !matchesConstructionValue(node.construction, entry.construction)) {
+      continue;
+    }
+    const candidates = buildGeoNodeContextCandidates(node);
+    if (candidates.some((candidate) => candidate === entryContext)) {
+      return key;
+    }
+  }
+
+  return null;
 }
 
 // Флаг для защиты от гонок при навигации по записи журнала
@@ -123,6 +222,10 @@ journalStatusFilterButtons = Array.from(
 );
 journalStatTotalEl = document.getElementById("journalStatTotal");
 journalStatExceededEl = document.getElementById("journalStatExceeded");
+journalIssueListEl = document.getElementById("journalIssueList");
+journalIssueEmptyEl = document.getElementById("journalIssueEmpty");
+journalIssueOpenCountEl = document.getElementById("journalIssueOpenCount");
+journalIssueOverdueCountEl = document.getElementById("journalIssueOverdueCount");
 
 function normalizeJournalStatus(status) {
   const value = (status || "").toString().trim().toLowerCase();
@@ -135,6 +238,389 @@ function getJournalStatusLabel(status) {
   if (status === "ok") return "В норме";
   if (status === "exceeded") return "Превышено";
   return "—";
+}
+
+function findIssueForJournalEntry(entry) {
+  const sourceJournalEntryId = String(entry?.id || "").trim();
+  const sourceInspectionId = String(entry?.sourceId || "").trim();
+
+  return issueRecords.find((issue) => {
+    const issueJournalEntryId = String(issue?.sourceJournalEntryId || "").trim();
+    const issueInspectionId = String(issue?.sourceInspectionId || "").trim();
+    if (sourceJournalEntryId && !sourceJournalEntryId.startsWith("entry_") && issueJournalEntryId === sourceJournalEntryId) {
+      return true;
+    }
+    return Boolean(sourceInspectionId && issueInspectionId === sourceInspectionId);
+  }) || null;
+}
+
+function getPendingRepeatControlIssueId() {
+  try {
+    const raw = sessionStorage.getItem(ISSUE_REPEAT_CONTROL_STORAGE_KEY);
+    if (!raw) return "";
+    const data = JSON.parse(raw);
+    if (data?.projectId && data.projectId !== currentProjectId) return "";
+    return String(data?.issueId || "").trim();
+  } catch {
+    return "";
+  }
+}
+
+function setPendingRepeatControl(issue: IssueRecord) {
+  if (!currentProjectId || !issue?.id) return;
+  sessionStorage.setItem(
+    ISSUE_REPEAT_CONTROL_STORAGE_KEY,
+    JSON.stringify({
+      projectId: currentProjectId,
+      issueId: issue.id,
+      sourceInspectionId: issue.sourceInspectionId || null,
+      sourceJournalEntryId: issue.sourceJournalEntryId || null,
+      startedAt: Date.now()
+    })
+  );
+}
+
+function clearPendingRepeatControl(issueId = "") {
+  const pendingIssueId = getPendingRepeatControlIssueId();
+  if (!issueId || pendingIssueId === issueId) {
+    sessionStorage.removeItem(ISSUE_REPEAT_CONTROL_STORAGE_KEY);
+  }
+}
+
+function issueMatchesRepeatEntry(issue: IssueRecord, entry: JournalEntryRecord) {
+  if (!issue || getRuntimeIssueStatus(issue) === "closed") return false;
+  if (hasIssueRepeatControl(issue)) return false;
+  if (normalizeJournalStatus(entry?.status) !== "ok") return false;
+
+  const issueSourceId = String(issue.sourceInspectionId || "").trim();
+  const entrySourceId = String(entry.sourceId || "").trim();
+  if (issueSourceId && entrySourceId && issueSourceId === entrySourceId) {
+    return true;
+  }
+
+  const issueModule = normalizeJournalMatchText(issue.module);
+  const entryModule = normalizeJournalMatchText(entry.module);
+  const issueContext = normalizeJournalMatchText(issue.context);
+  const entryContext = normalizeJournalMatchText(entry.context || entry.node);
+  const constructionMatches = matchesConstructionValue(issue.construction, entry.construction);
+
+  return Boolean(
+    issueModule &&
+    entryModule &&
+    issueModule === entryModule &&
+    constructionMatches &&
+    issueContext &&
+    entryContext &&
+    issueContext === entryContext
+  );
+}
+
+function findIssueForRepeatControl(entry: JournalEntryRecord) {
+  const pendingIssueId = getPendingRepeatControlIssueId();
+  if (pendingIssueId) {
+    const pendingIssue = issueRecords.find((issue) => issue.id === pendingIssueId);
+    if (pendingIssue && issueMatchesRepeatEntry(pendingIssue, entry)) return pendingIssue;
+  }
+
+  return issueRecords.find((issue) => issueMatchesRepeatEntry(issue, entry)) || null;
+}
+
+async function linkRepeatControlFromJournalEntry(entry: JournalEntryRecord) {
+  if (!currentProjectId || normalizeJournalStatus(entry?.status) !== "ok") return;
+  const issue = findIssueForRepeatControl(entry);
+  if (!issue?.id) return;
+
+  const repeatControlAt = resolveJournalTimestampMs(entry.timestamp ?? entry.ts);
+  try {
+    await linkProjectIssueRepeatControl(currentProjectId, issue.id, {
+      repeatControlJournalEntryId: entry.id || null,
+      repeatControlInspectionId: entry.sourceId || null,
+      repeatControlAt,
+      repeatControlStatus: "ok",
+      repeatControlDetails: entry.details || null,
+      status: "ready_for_review"
+    });
+    issue.repeatControlJournalEntryId = entry.id || null;
+    issue.repeatControlInspectionId = entry.sourceId || null;
+    issue.repeatControlAt = repeatControlAt;
+    issue.repeatControlStatus = "ok";
+    issue.repeatControlDetails = entry.details || null;
+    issue.status = "ready_for_review";
+    issue.updatedAt = Date.now();
+    clearPendingRepeatControl(issue.id);
+    renderIssueRegistry();
+    showNotification("Повторный контроль привязан к замечанию. Теперь его можно закрыть.", "success");
+  } catch (error) {
+    console.error("[Issues] Не удалось привязать повторный контроль:", error);
+    showNotification("Повторный контроль выполнен, но не удалось привязать его к замечанию.", "warning");
+  }
+}
+
+function buildJournalEntryFromIssue(issue: IssueRecord): JournalEntryRecord {
+  return {
+    id: issue.sourceJournalEntryId || null,
+    projectId: issue.projectId || currentProjectId || null,
+    module: issue.module || "",
+    construction: issue.construction || "",
+    constructionLabel: issue.constructionLabel || null,
+    context: issue.context || "",
+    status: "exceeded",
+    details: issue.description || "",
+    sourceId: issue.sourceInspectionId || null
+  };
+}
+
+async function startRepeatControlForIssue(issue: IssueRecord) {
+  if (!issue?.id) return;
+  setPendingRepeatControl(issue);
+  await onJournalRowClick(buildJournalEntryFromIssue(issue));
+  showNotification("Открыта исходная проверка. Выполните повторный контроль и сохраните результат.", "info");
+}
+
+function getIssueTransition(status: IssueRecord["status"]) {
+  switch (getRuntimeIssueStatus({ status } as IssueRecord)) {
+    case "draft":
+      return {
+        nextStatus: "issued" as const,
+        label: "Выдать замечание",
+        note: "После выдачи замечание считается официально открытым."
+      };
+    case "issued":
+      return {
+        nextStatus: "in_progress" as const,
+        label: "Взять в работу",
+        note: "Фиксирует, что устранение начато."
+      };
+    case "in_progress":
+      return {
+        nextStatus: "ready_for_review" as const,
+        label: "Передать на проверку",
+        note: "Исполнитель считает отклонение устранённым."
+      };
+    case "ready_for_review":
+    case "overdue":
+      return {
+        nextStatus: "closed" as const,
+        label: "Закрыть замечание",
+        note: "Закрывайте только после повторного контроля."
+      };
+    case "closed":
+    default:
+      return {
+        nextStatus: "issued" as const,
+        label: "Открыть заново",
+        note: "Вернёт замечание в открытые."
+      };
+  }
+}
+
+async function deleteIssueFromRegistry(issue: IssueRecord) {
+  if (!currentProjectId || !issue.id) return;
+  if (!(await showConfirm("Удалить это замечание? Связь со строкой журнала будет снята, но запись журнала останется."))) {
+    return;
+  }
+
+  try {
+    await deleteProjectIssue(currentProjectId, issue.id);
+    issueRecords = issueRecords.filter((item) => item.id !== issue.id);
+    renderIssueRegistry();
+    renderJournal();
+    showNotification("Замечание удалено.", "success");
+  } catch (error) {
+    console.error("[Issues] Не удалось удалить замечание:", error);
+    showNotification("Не удалось удалить замечание.", "error");
+  }
+}
+
+function renderIssueRegistry() {
+  if (!journalIssueListEl) return;
+
+  const issues = Array.isArray(issueRecords) ? issueRecords : [];
+  const now = Date.now();
+  const openCount = issues.filter((issue) => getRuntimeIssueStatus(issue, now) !== "closed").length;
+  const overdueCount = issues.filter((issue) => getRuntimeIssueStatus(issue, now) === "overdue").length;
+
+  if (journalIssueOpenCountEl) journalIssueOpenCountEl.textContent = String(openCount);
+  if (journalIssueOverdueCountEl) journalIssueOverdueCountEl.textContent = String(overdueCount);
+
+  journalIssueListEl.innerHTML = "";
+  if (!issues.length) {
+    if (journalIssueEmptyEl) journalIssueEmptyEl.hidden = false;
+    return;
+  }
+  if (journalIssueEmptyEl) journalIssueEmptyEl.hidden = true;
+
+  issues.forEach((issue) => {
+    const runtimeStatus = getRuntimeIssueStatus(issue, now);
+    const transition = getIssueTransition(runtimeStatus);
+    const repeatControlLinked = hasIssueRepeatControl(issue);
+    const card = document.createElement("article");
+    card.className = `journal-issue-card journal-issue-card--${runtimeStatus}`;
+
+    const head = document.createElement("div");
+    head.className = "journal-issue-card__head";
+
+    const title = document.createElement("div");
+    title.className = "journal-issue-card__title";
+    title.textContent = String(issue.title || "Замечание");
+
+    const statusBox = document.createElement("div");
+    statusBox.className = "journal-issue-card__status";
+
+    const statusLabel = document.createElement("span");
+    statusLabel.className = "journal-issue-card__status-label";
+    statusLabel.textContent = "Статус";
+
+    const badge = document.createElement("span");
+    badge.className = `journal-issue-status journal-issue-status--${runtimeStatus}`;
+    badge.textContent = getIssueStatusLabel(runtimeStatus);
+
+    statusBox.appendChild(statusLabel);
+    statusBox.appendChild(badge);
+    head.appendChild(title);
+    head.appendChild(statusBox);
+
+    const meta = document.createElement("div");
+    meta.className = "journal-issue-card__meta";
+    const dueText = issue.dueDate ? formatJournalTimestamp(Number(issue.dueDate)) : "—";
+    meta.textContent = `${issue.module || "Проверка"} • ${issue.constructionLabel || issue.construction || "—"} • срок: ${dueText}`;
+
+    const description = document.createElement("div");
+    description.className = "journal-issue-card__description";
+    description.textContent = String(issue.description || "");
+
+    const repeatInfo = document.createElement("div");
+    repeatInfo.className = repeatControlLinked
+      ? "journal-issue-card__repeat journal-issue-card__repeat--linked"
+      : "journal-issue-card__repeat";
+    const repeatDate = issue.repeatControlAt ? formatJournalTimestamp(Number(issue.repeatControlAt)) : "";
+    repeatInfo.textContent = repeatControlLinked
+      ? `Повторный контроль: выполнен${repeatDate ? ` ${repeatDate}` : ""}.`
+      : "Повторный контроль ещё не привязан.";
+
+    const action = document.createElement("button");
+    action.type = "button";
+    action.className = "journal-issue-card__action";
+    action.textContent = transition.label;
+    action.title = transition.note;
+    action.addEventListener("click", async () => {
+      if (!currentProjectId || !issue.id) return;
+      if (transition.nextStatus === "closed" && !hasIssueRepeatControl(issue)) {
+        showNotification("Сначала выполните и привяжите повторный контроль с результатом «В норме».", "warning");
+        return;
+      }
+      action.disabled = true;
+      try {
+        await updateProjectIssueStatus(currentProjectId, issue.id, transition.nextStatus);
+        issue.status = transition.nextStatus;
+        issue.updatedAt = Date.now();
+        issue.closedAt = transition.nextStatus === "closed" ? Date.now() : null;
+        renderIssueRegistry();
+        renderJournal();
+        showNotification("Статус замечания обновлён.", "success");
+      } catch (error) {
+        console.error("[Issues] Не удалось обновить статус:", error);
+        showNotification("Не удалось обновить статус замечания.", "error");
+      } finally {
+        action.disabled = false;
+      }
+    });
+
+    const repeatButton = document.createElement("button");
+    repeatButton.type = "button";
+    repeatButton.className = "journal-issue-card__repeat-action";
+    repeatButton.textContent = repeatControlLinked ? "Контроль привязан" : "Повторный контроль";
+    repeatButton.disabled = repeatControlLinked || runtimeStatus === "closed";
+    repeatButton.title = repeatControlLinked
+      ? "Повторный контроль уже привязан к замечанию"
+      : "Открыть исходную проверку для повторного контроля";
+    repeatButton.addEventListener("click", () => {
+      void startRepeatControlForIssue(issue);
+    });
+
+    const actionNote = document.createElement("div");
+    actionNote.className = "journal-issue-card__action-note";
+    actionNote.textContent = transition.nextStatus === "closed" && !repeatControlLinked
+      ? "Закрытие доступно только после повторного контроля с результатом «В норме»."
+      : transition.note;
+    actionNote.hidden = !(transition.nextStatus === "closed" && !repeatControlLinked);
+
+    const deleteButton = document.createElement("button");
+    deleteButton.type = "button";
+    deleteButton.className = "journal-issue-card__delete";
+    deleteButton.textContent = "Удалить";
+    deleteButton.addEventListener("click", () => {
+      void deleteIssueFromRegistry(issue);
+    });
+
+    const actions = document.createElement("div");
+    actions.className = "journal-issue-card__actions";
+    actions.appendChild(repeatButton);
+    actions.appendChild(action);
+    actions.appendChild(deleteButton);
+
+    card.appendChild(head);
+    card.appendChild(meta);
+    card.appendChild(description);
+    card.appendChild(repeatInfo);
+    if (!actionNote.hidden) {
+      card.appendChild(actionNote);
+    }
+    card.appendChild(actions);
+    journalIssueListEl.appendChild(card);
+  });
+}
+
+async function loadIssuesFromFirestore() {
+  if (!currentProjectId) {
+    issueRecords = [];
+    renderIssueRegistry();
+    return;
+  }
+
+  try {
+    issueRecords = await loadProjectIssues(currentProjectId);
+  } catch (error) {
+    console.error("[Issues] Ошибка загрузки замечаний:", error);
+    issueRecords = [];
+  }
+  renderIssueRegistry();
+}
+
+async function createIssueFromJournalEntry(entry, button = null) {
+  if (!currentProjectId) {
+    showNotification("Сначала выберите или создайте объект.", "warning");
+    return;
+  }
+
+  if (normalizeJournalStatus(entry?.status) !== "exceeded") {
+    showNotification("Замечания создаются только по нарушениям.", "info");
+    return;
+  }
+
+  const existingIssue = findIssueForJournalEntry(entry);
+  if (existingIssue) {
+    showNotification("По этой проверке уже есть замечание.", "info");
+    return;
+  }
+
+  if (button) button.disabled = true;
+  try {
+    const payload = createIssuePayloadFromJournalEntry({
+      ...entry,
+      projectId: currentProjectId
+    });
+    const created = await createProjectIssue(currentProjectId, payload);
+    issueRecords.unshift(created);
+    renderIssueRegistry();
+    renderJournal();
+    showNotification("Замечание создано.", "success");
+  } catch (error) {
+    console.error("[Issues] Ошибка создания замечания:", error);
+    showNotification("Не удалось создать замечание.", "error");
+  } finally {
+    if (button) button.disabled = false;
+  }
 }
 
 function applyJournalStatusFilter(entries) {
@@ -288,6 +774,8 @@ async function loadJournalFromFirestore() {
   if (!currentProjectId) {
     journalEntries = [];
     journalFilteredEntries = [];
+    issueRecords = [];
+    renderIssueRegistry();
     return;
   }
 
@@ -312,6 +800,7 @@ async function loadJournalFromFirestore() {
       details: entry.details
     }));
     saveJournal();
+    await loadIssuesFromFirestore();
     renderJournal();
   } catch (error) {
     console.error("[Journal] Ошибка загрузки журнала из Firestore:", error);
@@ -430,6 +919,7 @@ async function upsertJournalEntry({ module, status, context = "", details = "", 
         }));
     
     saveJournal();
+    await linkRepeatControlFromJournalEntry(entry);
     
     // Обновляем отображение журнала (только если открыта вкладка журнала)
     const journalSection = document.getElementById("journal");
@@ -628,33 +1118,7 @@ async function deleteModuleCheckFromEntry(entry) {
 
   try {
     if (moduleKey.includes("геодез")) {
-      if (!sourceId && entry.context) {
-        for (const [key, node] of nodes.entries()) {
-          if (!node) continue;
-          const entryContext = normalizeMatchValue(entry.context);
-          const nodeLocation = normalizeMatchValue(node.location);
-          if (nodeLocation && entryContext && (entryContext.includes(nodeLocation) || nodeLocation.includes(entryContext))) {
-            sourceId = key;
-            break;
-          }
-          if (node.type === "columns" || node.type === "walls" || node.type === "beams") {
-            const contextLower = normalizeMatchValue(entry.context);
-            const nodeInfo = node.type === "columns"
-              ? normalizeMatchValue(`${node.columnMark || ""} ${node.floor || ""}`)
-              : normalizeMatchValue(node.floor || "");
-            if (contextLower.includes(nodeInfo) || nodeInfo.includes(contextLower)) {
-              sourceId = key;
-              break;
-            }
-          } else {
-            const nodeId = `${node.letter || ""}-${node.number || ""}`.trim();
-            if (entry.context.includes(nodeId) || (nodeId && entry.context.includes(nodeId.split("-")[0]))) {
-              sourceId = key;
-              break;
-            }
-          }
-        }
-      }
+      if (!sourceId) sourceId = findGeoNodeKeyForJournalEntry(entry);
 
       if (!sourceId) return;
       await deleteProjectCollectionDoc(currentProjectId, "geoNodes", sourceId);
@@ -724,7 +1188,11 @@ async function deleteModuleCheckFromEntry(entry) {
 
           const checkTime = Number(check.createdAt || 0);
           const timeDiff = Math.abs(checkTime - entryTime);
-          const checkContext = normalizeMatchValue(check.location || check.stairName || "");
+          const formworkContext = [
+            check.formworkElementName || check.formworkArea || "",
+            check.floor ? `этаж ${check.floor}` : ""
+          ].filter(Boolean).join("");
+          const checkContext = normalizeMatchValue(check.location || check.stairName || formworkContext || "");
           const entryContext = normalizeMatchValue(entry.context || "");
 
           if (entryContext && checkContext && (
@@ -863,44 +1331,7 @@ async function onJournalRowClick(entry) {
 
     if (entry.module === "Геодезия") {
       // Ищем узел геодезии
-      let targetNodeKey = null;
-
-      // Сначала по sourceId (приоритетно)
-      if (entry.sourceId) {
-        if (nodes.has(entry.sourceId)) {
-          targetNodeKey = entry.sourceId;
-          found = true;
-        }
-      }
-
-      // Если не нашли, ищем по context/nodeId
-      if (!found && entry.context) {
-        for (const [key, node] of nodes.entries()) {
-          if (!node) continue;
-
-          // Для колонн, стен, балок проверяем по маркировке/этажу
-          if (node.type === "columns" || node.type === "walls" || node.type === "beams") {
-            const contextLower = String(entry.context || "").toLowerCase();
-            const nodeInfo = node.type === "columns" 
-              ? String(node.columnMark || "").toLowerCase() + " " + String(node.floor || "").toLowerCase()
-              : String(node.floor || "").toLowerCase();
-            
-            if (contextLower.includes(nodeInfo) || nodeInfo.includes(contextLower)) {
-              targetNodeKey = key;
-              found = true;
-              break;
-            }
-          } else {
-            // Для обычных узлов проверяем по nodeId (например, "А-1")
-            const nodeId = `${node.letter || ""}-${node.number || ""}`.trim();
-            if (entry.context.includes(nodeId) || nodeId && entry.context.includes(nodeId.split("-")[0])) {
-              targetNodeKey = key;
-              found = true;
-              break;
-            }
-          }
-        }
-      }
+      const targetNodeKey = findGeoNodeKeyForJournalEntry(entry);
 
       if (targetNodeKey && nodes.has(targetNodeKey)) {
         console.log("[Journal] Открываем узел геодезии:", targetNodeKey);
@@ -919,6 +1350,12 @@ async function onJournalRowClick(entry) {
             }
           }, 300);
         }
+      } else {
+        console.warn("[Journal] Не удалось точно найти геоузел для записи:", entry);
+        showNotification(
+          "Исходная геопроверка не найдена. Запись журнала без точной связи с сохранённым узлом.",
+          "warning"
+        );
       }
 
     } else if (entry.module === "Армирование") {
@@ -1190,6 +1627,10 @@ function renderJournal() {
       projectId: e.projectId || currentProjectId || null,
       module: e.module || "",
       construction: e.construction || "",
+      constructionCategory: e.constructionCategory || null,
+      constructionLabel: e.constructionLabel || null,
+      constructionSubtype: e.constructionSubtype || null,
+      constructionSubtypeLabel: e.constructionSubtypeLabel || null,
       context: e.context || e.node || "",
       status: e.status || "",
       details: e.details || "",
@@ -1236,6 +1677,24 @@ function renderJournal() {
 
     const tdActions = document.createElement("td");
     tdActions.className = "journal-actions-cell";
+    const linkedIssue = findIssueForJournalEntry(fullEntry);
+    if (normalizedStatus === "exceeded") {
+      const btnIssue = document.createElement("button");
+      btnIssue.type = "button";
+      btnIssue.className = "journal-issue-btn";
+      btnIssue.title = linkedIssue ? "Замечание уже создано" : "Создать замечание";
+      btnIssue.setAttribute("aria-label", btnIssue.title);
+      btnIssue.disabled = Boolean(linkedIssue);
+      btnIssue.innerHTML = linkedIssue
+        ? `<span aria-hidden="true">✓</span>`
+        : `<span aria-hidden="true">!</span>`;
+      btnIssue.addEventListener("click", async (event) => {
+        event.stopPropagation();
+        await createIssueFromJournalEntry(fullEntry, btnIssue);
+      });
+      tdActions.appendChild(btnIssue);
+    }
+
     const btnDel = document.createElement("button");
     btnDel.type = "button";
     btnDel.className = "journal-delete-btn";
@@ -1535,6 +1994,7 @@ const shouldRestoreLocalJournal = restoreOnce && restoreProject === currentProje
 if (currentProjectId) {
   if (shouldRestoreLocalJournal) {
     renderJournal();
+    void loadIssuesFromFirestore().then(() => renderJournal());
     updateSummaryTab();
     localStorage.removeItem("journal_restore_once");
     localStorage.removeItem("journal_restore_project");
@@ -1542,6 +2002,7 @@ if (currentProjectId) {
     loadJournalFromFirestore();
   }
 } else {
+  renderIssueRegistry();
   renderJournal();
 }
 

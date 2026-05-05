@@ -5,6 +5,10 @@ import {
 } from "../repositories/firestore-repository.js";
 import { BIM_TO_TEHNADZOR_TYPE } from "./bim-elements.js";
 import type { IfcImportProgress, IfcImportResult } from "../../types/domain.js";
+import {
+  IFC_NANOCAD_WARNING_MESSAGE,
+  shouldShowIfcCoordinateWarning
+} from "./ifc-diagnostics.js";
 
 const FIRESTORE_BATCH_LIMIT = 500;
 
@@ -129,6 +133,12 @@ export function formatIfcImportSummary(result: IfcImportSummaryResult = {}) {
   return `Импортировано ${total} элементов${suffix}.`;
 }
 
+export function formatIfcDiagnosticWarning(result: IfcImportSummaryResult = {}) {
+  return shouldShowIfcCoordinateWarning(result.diagnosticSummary)
+    ? IFC_NANOCAD_WARNING_MESSAGE
+    : "";
+}
+
 export async function importIfcIntoProject({ projectId, file, onProgress }: ImportIfcIntoProjectArgs) {
   const normalizedProjectId = String(projectId || "").trim();
   if (!normalizedProjectId) {
@@ -192,7 +202,8 @@ export async function importIfcIntoProject({ projectId, file, onProgress }: Impo
     importedCount,
     replacedCount,
     countsByType: parsedImport.countsByType,
-    countsByLabel: parsedImport.countsByLabel
+    countsByLabel: parsedImport.countsByLabel,
+    diagnosticSummary: parsedImport.diagnosticSummary
   };
 }
 

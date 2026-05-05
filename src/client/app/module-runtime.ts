@@ -5,6 +5,7 @@ type GeometryModule = typeof import("./modules/geometry.js");
 type ReinforcementModule = typeof import("./modules/reinforcement.js");
 type StrengthModule = typeof import("./modules/strength.js");
 type SummaryModule = typeof import("./modules/summary.js");
+type ControlPlanModule = typeof import("./modules/control-plan.js");
 
 interface ModuleRuntimeOptions {
   onJournalTabActivated?: () => void;
@@ -18,6 +19,7 @@ export function createModuleRuntime({ onJournalTabActivated }: ModuleRuntimeOpti
   let reinforcementModulePromise: Promise<ReinforcementModule> | null = null;
   let strengthModulePromise: Promise<StrengthModule> | null = null;
   let summaryModulePromise: Promise<SummaryModule> | null = null;
+  let controlPlanModulePromise: Promise<ControlPlanModule> | null = null;
   const tabModulePromises = new Map<string, Promise<void>>();
 
   const withModule = <TModule, TResult>(
@@ -108,6 +110,21 @@ export function createModuleRuntime({ onJournalTabActivated }: ModuleRuntimeOpti
     return summaryModulePromise;
   };
 
+  const getControlPlanModule = () => {
+    if (!controlPlanModulePromise) {
+      controlPlanModulePromise = import("./modules/control-plan.js")
+        .then((module) => {
+          module.initControlPlanModule();
+          return module;
+        })
+        .catch((error) => {
+          controlPlanModulePromise = null;
+          throw error;
+        });
+    }
+    return controlPlanModulePromise;
+  };
+
   const loadKnowledgeModule = async () => {
     const module = await import("./modules/knowledge.js");
     module.initKnowledgeModule();
@@ -115,6 +132,7 @@ export function createModuleRuntime({ onJournalTabActivated }: ModuleRuntimeOpti
 
   const tabModuleLoaders = new Map<string, () => Promise<void>>([
     ["journal", async () => void (await getJournalModule())],
+    ["controlPlan", async () => void (await getControlPlanModule())],
     ["summary", async () => void (await getSummaryModule())],
     ["geometry", async () => void (await getGeometryModule())],
     ["reinforcement", async () => void (await getReinforcementModule())],

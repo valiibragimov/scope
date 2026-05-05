@@ -51,8 +51,30 @@ test("about page returns the public product narrative", async () => {
 
   assert.equal(response.status, 200);
   assert.match(body, /О проекте — Tehnadzor/);
-  assert.match(body, /Сервис для строительного контроля/);
+  assert.match(body, /Стройконтроль без лишней беготни/);
+  assert.match(body, /class="about-cinematic"/);
   assert.match(body, /BIM \/ IFC/);
+  assert.match(body, /Нормативный ассистент/);
+  assert.match(body, /Повторный контроль/);
+  assert.match(body, /Проверка идёт по шагам/);
+  assert.match(body, /aboutSceneTitle/);
+  assert.match(body, /import\("\.\/app\/ui\/theme\.js"\)/);
+  assert.match(body, /--story-progress/);
+  assert.doesNotMatch(body, /import \{ initThemeControls \}/);
+  assert.doesNotMatch(body, /class="header-actions"/);
+});
+
+test("privacy page explains product data handling in plain language", async () => {
+  const { response, body } = await fetchText("/privacy.html");
+
+  assert.equal(response.status, 200);
+  assert.match(body, /Политика конфиденциальности — Tehnadzor/);
+  assert.match(body, /Федерального закона №152-ФЗ/);
+  assert.match(body, /BIM \/ IFC-файлами/);
+  assert.match(body, /Права пользователя/);
+  assert.match(body, /import\("\.\/app\/ui\/theme\.js"\)/);
+  assert.doesNotMatch(body, /import \{ initThemeControls \}/);
+  assert.doesNotMatch(body, /class="header-actions"/);
 });
 
 test("profile page keeps its primary shell accessible", async () => {

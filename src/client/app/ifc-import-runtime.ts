@@ -1,6 +1,7 @@
 import {
   createSourceModelIdFromFile,
   deleteImportedBimElements,
+  formatIfcDiagnosticWarning,
   formatIfcImportSummary,
   importIfcIntoProject
 } from "./services/ifc-import.js";
@@ -53,9 +54,11 @@ function setStatusText(
       ? "#fca5a5"
       : tone === "success"
         ? "#86efac"
-        : tone === "muted"
-          ? "#94a3b8"
-          : "";
+        : tone === "warning"
+          ? "#fbbf24"
+          : tone === "muted"
+            ? "#94a3b8"
+            : "";
 }
 
 function resolveIfcPrimaryActionLabel({
@@ -400,8 +403,12 @@ export function createIfcImportRuntime({
           } catch (cacheError) {
             console.warn("[BIM] IFC cache save failed:", cacheError);
           }
-          setBimImportStatus(formatIfcImportSummary(result), "success");
-          showNotification("IFC успешно импортирован.", "success");
+          const diagnosticWarning = formatIfcDiagnosticWarning(result);
+          setBimImportStatus(
+            diagnosticWarning || formatIfcImportSummary(result),
+            diagnosticWarning ? "warning" : "success"
+          );
+          showNotification(diagnosticWarning || "IFC успешно импортирован.", diagnosticWarning ? "warning" : "success");
           await loadProjectBimElements(currentProjectId);
           await refreshLoadedBimModules();
         } catch (error) {
@@ -448,7 +455,7 @@ export function createIfcImportRuntime({
           setButtonBusyState(btnClearIfcImport || null, true, { busyLabel: "Удаление..." });
           syncIfcImportControls();
 
-          if (!(await showConfirm(confirmMessage, { anchor: btnClearIfcImport || undefined }))) {
+          if (!(await showConfirm(confirmMessage, { anchor: btnIfcMoreActions || btnClearIfcImport || undefined }))) {
             return;
           }
 

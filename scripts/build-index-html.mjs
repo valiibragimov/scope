@@ -15,6 +15,7 @@ const orderedPartials = [
   "sections/reinforcement.html",
   "sections/geometry.html",
   "sections/strength.html",
+  "sections/control-plan.html",
   "sections/summary.html",
   "sections/journal.html",
   "sections/knowledge.html",

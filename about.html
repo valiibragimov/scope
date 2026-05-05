@@ -22,7 +22,7 @@
   <link rel="shortcut icon" href="favicon.ico">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="liquid-glass.css?v=1">
-  <link rel="stylesheet" href="style.css?v=28">
+  <link rel="stylesheet" href="style.css?v=30">
 </head>
 <body class="about-page">
   <script>
@@ -51,114 +51,198 @@
       </svg>
         <h1>Tehnadzor</h1>
     </a>
-    <div class="header-actions">
-      <a href="index.html" class="header-icon-btn" title="Главная" aria-label="Главная">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
-          <polyline points="9 22 9 12 15 12 15 22"/>
-        </svg>
-      </a>
-      <button id="themeToggleBtn" class="header-icon-btn theme-toggle-btn" aria-label="Сменить тему" title="Сменить тему">
-        <span class="theme-toggle-icon"></span>
-      </button>
-      <a href="profile.html" class="header-icon-btn" title="Профиль" aria-label="Профиль">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
-          <circle cx="12" cy="7" r="4"/>
-        </svg>
-      </a>
-    </div>
   </header>
 
-  <main class="about-main">
-    <section class="about-hero about-stage">
-      <div class="scroll-reveal is-visible" data-reveal-delay="0ms" data-parallax="10">
-        <div class="about-hero__eyebrow">О проекте</div>
-        <h2 class="about-hero__title">Сервис для строительного контроля, где всё нужное собрано в одном месте.</h2>
-        <p class="about-hero__lead">
-          В Tehnadzor собраны проверки, BIM-контекст, проектные данные и база знаний. Идея простая: чтобы по ходу работы не приходилось прыгать между таблицами, файлами, заметками и разными экранами.
+  <main class="about-main about-scroll-story">
+    <section class="about-immersive about-immersive--intro" data-story-scene="0">
+      <div class="about-copy">
+        <h2>Стройконтроль без лишней беготни.</h2>
+        <p>
+          Tehnadzor помогает инженеру вести проверки, замечания, журнал и документы в одном месте. Не нужно каждый раз собирать картину из таблиц, переписок и файлов: видно, что уже проверено, где есть проблема и что делать дальше.
         </p>
-        <div class="about-hero__meta">
-          <span class="about-chip">Проверки</span>
-          <span class="about-chip">BIM / IFC</span>
-          <span class="about-chip">База знаний</span>
-        </div>
       </div>
-      <div class="about-hero__visual scroll-reveal" data-reveal-delay="120ms" data-parallax="-14">
-        <div class="about-hero__visual-grid">
-          <div class="about-panel" data-parallax="8">
-            <div class="about-panel__kicker">Один рабочий экран</div>
-            <div class="about-panel__title">Проект, данные и результат рядом</div>
-            <div class="about-panel__text">Можно выбрать проект, подтянуть BIM-элементы, пройти проверку и сразу зафиксировать результат без лишних переходов.</div>
+      <div class="about-hero-signal" aria-hidden="true">
+        <div class="about-hero-signal__ring"></div>
+        <div class="about-hero-signal__item about-hero-signal__item--one">Проверки</div>
+        <div class="about-hero-signal__item about-hero-signal__item--two">Журнал</div>
+        <div class="about-hero-signal__item about-hero-signal__item--three">Замечания</div>
+        <div class="about-hero-signal__item about-hero-signal__item--four">Документы</div>
+      </div>
+    </section>
+
+    <section class="about-cinematic" aria-label="История продукта">
+      <div class="about-cinematic__sticky">
+        <div class="about-cinematic__copy">
+          <span id="aboutSceneKicker">Проект</span>
+          <h3 id="aboutSceneTitle">Сначала задаёте объект.</h3>
+          <p id="aboutSceneText">Название, дата, инженер, конструкции. Всё, что нужно для нормальной проверки, лежит в одном проекте.</p>
+        </div>
+        <div class="about-product-stage" aria-hidden="true">
+          <div class="about-product-orbit"></div>
+          <div class="about-product-card about-product-card--project">
+            <small>Объект</small>
+            <strong>Проект</strong>
+            <span>участок · дата · ответственный</span>
           </div>
-          <div class="about-panel" data-parallax="14">
-            <div class="about-panel__kicker">Меньше рутины</div>
-            <div class="about-panel__title">Легче держать порядок в работе</div>
-            <div class="about-panel__text">Когда нужная информация уже под рукой, проще не терять контекст и не собирать картину проекта заново каждый раз.</div>
+          <div class="about-product-card about-product-card--bim">
+            <small>BIM / IFC</small>
+            <strong>Выбор элемента</strong>
+            <span>GUID · этаж · оси · марка</span>
+          </div>
+          <div class="about-product-card about-product-card--check">
+            <small>Контроль</small>
+            <strong>Геодезия</strong>
+            <span>допуск X/Y ±8 мм</span>
+          </div>
+          <div class="about-product-card about-product-card--issue">
+            <small>Замечание</small>
+            <strong>Повторный контроль</strong>
+            <span>закрытие только после проверки</span>
+          </div>
+          <div class="about-product-card about-product-card--report">
+            <small>Документ</small>
+            <strong>PDF</strong>
+            <span>журнал · итог · ITP</span>
           </div>
         </div>
       </div>
     </section>
 
-    <section class="about-story about-stage">
-      <div class="about-section-grid">
-        <div class="scroll-reveal about-section-pin" data-reveal-delay="0ms">
-          <div class="about-hero__eyebrow">Зачем это сделано</div>
-          <h3 class="about-section__title">Технадзор и так сложный. Интерфейс не должен делать его ещё сложнее.</h3>
-        </div>
-        <div class="about-section__body scroll-reveal" data-reveal-delay="110ms" data-parallax="10">
-          <p>На практике данные по проекту часто разбросаны: что-то в BIM, что-то в таблицах, что-то в переписке, что-то просто держится в голове. Из-за этого даже простая проверка иногда занимает больше времени, чем должна.</p>
-            <p>Tehnadzor сделан как попытка собрать всё основное в одном месте. Не для красоты, а чтобы с проектом было проще работать каждый день.</p>
-        </div>
+    <section class="about-feature-film about-stage" aria-label="Возможности Tehnadzor">
+      <div class="about-feature-film__intro scroll-reveal">
+        <h3>Смысл простой: меньше ручной сборки, больше порядка.</h3>
+        <p>Вы выбираете конструкцию, проводите проверку, видите допуск, фиксируете результат и при необходимости создаёте замечание. Потом из этих данных собираются журнал, план контроля и итоговый документ.</p>
       </div>
-    </section>
-
-    <section class="about-feature-band about-stage">
-      <div class="about-feature-grid">
-        <article class="about-feature-card scroll-reveal" data-reveal-delay="0ms" data-parallax="8">
-          <div class="about-feature-card__index">01</div>
-          <div class="about-feature-card__title">Работа с BIM</div>
-          <div class="about-feature-card__text">Можно загрузить IFC, выбрать нужные элементы и использовать их дальше в модулях контроля без ручного дублирования данных.</div>
+      <div class="about-feature-film__grid">
+        <article class="about-feature-tile about-feature-tile--large scroll-reveal" data-reveal-delay="40ms">
+          <span>BIM / IFC</span>
+          <h4>Конструкция остаётся понятной.</h4>
+          <p>Можно работать вручную или брать контекст из BIM/IFC: этаж, оси, тип элемента и идентификаторы не приходится держать в голове.</p>
         </article>
-        <article class="about-feature-card scroll-reveal" data-reveal-delay="90ms" data-parallax="12">
-          <div class="about-feature-card__index">02</div>
-          <div class="about-feature-card__title">Проверки по модулям</div>
-          <div class="about-feature-card__text">Геодезия, армирование, геометрия, прочность и итог собраны в одном интерфейсе и не ощущаются как отдельные чужие инструменты.</div>
+        <article class="about-feature-tile scroll-reveal" data-reveal-delay="90ms">
+          <span>Модули проверки</span>
+          <h4>Геодезия, армирование, геометрия и прочность рядом.</h4>
         </article>
-        <article class="about-feature-card scroll-reveal" data-reveal-delay="180ms" data-parallax="16">
-          <div class="about-feature-card__index">03</div>
-          <div class="about-feature-card__title">Справка под рукой</div>
-          <div class="about-feature-card__text">База знаний встроена прямо в продукт, поэтому нормативная и справочная информация не отрывается от самой работы.</div>
+        <article class="about-feature-tile scroll-reveal" data-reveal-delay="140ms">
+          <span>Нормативный ассистент</span>
+          <h4>Допуски видны прямо во время проверки.</h4>
+        </article>
+        <article class="about-feature-tile scroll-reveal" data-reveal-delay="190ms">
+          <span>Журнал</span>
+          <h4>Журнал собирается сам по ходу работы.</h4>
+        </article>
+        <article class="about-feature-tile about-feature-tile--accent scroll-reveal" data-reveal-delay="240ms">
+          <span>Замечания</span>
+          <h4>Замечание не висит отдельно от проверки.</h4>
+          <p>Если нашли отклонение, можно вернуться к той же конструкции, выполнить повторный контроль и закрыть замечание уже по факту.</p>
         </article>
       </div>
     </section>
 
-    <section class="about-showcase about-stage">
-      <div class="about-section-grid">
-        <div class="scroll-reveal about-section-pin" data-reveal-delay="0ms">
-          <div class="about-hero__eyebrow">Как это ощущается</div>
-          <h3 class="about-section__title">Сервис помогает не распыляться и держать проект в собранном виде.</h3>
+    <section class="about-flow about-stage" aria-label="Как работает контроль">
+      <div class="about-flow__sticky">
+        <div class="about-flow__copy scroll-reveal">
+          <h3>Проверка идёт по шагам.</h3>
+          <p>Каждое действие остаётся в истории. Поэтому позже понятно, кто что проверил, где было отклонение и чем всё закончилось.</p>
         </div>
-        <div class="about-showcase__stack">
-          <div class="about-showcase__card scroll-reveal" data-reveal-delay="40ms" data-parallax="10">
-            <div class="about-panel__kicker">Проекты</div>
-            <div class="about-showcase__metric">Всё важное рядом</div>
-            <div class="about-showcase__caption">Данные по проекту, участники и история проверок остаются в одном месте, и это сильно упрощает повседневную работу.</div>
-          </div>
-          <div class="about-showcase__card scroll-reveal" data-reveal-delay="140ms" data-parallax="16">
-            <div class="about-panel__kicker">Интерфейс</div>
-            <div class="about-showcase__metric">Понятно, что делать дальше</div>
-            <div class="about-showcase__caption">Основные действия видны сразу, второстепенное не мешает, а сам интерфейс остаётся компактным и рабочим.</div>
-          </div>
+        <div class="about-flow__timeline">
+          <article class="about-flow-step scroll-reveal">
+            <span>01</span>
+            <h4>Выбор конструкции</h4>
+            <p>Вы выбираете нужную конструкцию вручную или из BIM/IFC.</p>
+          </article>
+          <article class="about-flow-step scroll-reveal" data-reveal-delay="90ms">
+            <span>02</span>
+            <h4>Расчёт и норматив</h4>
+            <p>Вводите фактические данные, а система сравнивает их с допуском.</p>
+          </article>
+          <article class="about-flow-step scroll-reveal" data-reveal-delay="180ms">
+            <span>03</span>
+            <h4>Журнал и замечание</h4>
+            <p>Если есть проблема, запись остаётся в журнале и может стать замечанием.</p>
+          </article>
+          <article class="about-flow-step scroll-reveal" data-reveal-delay="270ms">
+            <span>04</span>
+            <h4>Итоговый документ</h4>
+            <p>Документы формируются из уже внесённых проверок, без повторного набора вручную.</p>
+          </article>
         </div>
       </div>
+    </section>
+
+    <section class="about-system about-stage" aria-label="Система данных">
+      <div class="about-system__headline scroll-reveal">
+        <h3>Главное — ничего не отрывается друг от друга.</h3>
+        <p>Проверка, конструкция, норматив, замечание и PDF связаны между собой. Это помогает не терять контекст, когда проект становится большим.</p>
+      </div>
+      <div class="about-system__board scroll-reveal" data-reveal-delay="120ms">
+        <div class="about-system-node about-system-node--primary">
+          <span>Контроль</span>
+          <strong>Проверка конструкции</strong>
+        </div>
+        <div class="about-system-node">
+          <span>Контекст</span>
+          <strong>BIM-элемент, этаж, оси</strong>
+        </div>
+        <div class="about-system-node">
+          <span>Основание</span>
+          <strong>Норматив и допуск</strong>
+        </div>
+        <div class="about-system-node">
+          <span>Риск</span>
+          <strong>Замечание и срок</strong>
+        </div>
+        <div class="about-system-node">
+          <span>Доказательство</span>
+          <strong>Повторный контроль</strong>
+        </div>
+        <div class="about-system-node">
+          <span>Выход</span>
+          <strong>PDF, ITP, итог</strong>
+        </div>
+      </div>
+    </section>
+
+    <section class="about-split about-stage">
+      <div class="about-split__copy scroll-reveal">
+        <h3>Инженеру не нужно собирать картину заново.</h3>
+      </div>
+      <div class="about-split__text scroll-reveal" data-reveal-delay="120ms">
+        <p>На стройке легко потерять мелочь: одну проверку, одно замечание, один повторный контроль. Потом именно эти мелочи мешают нормально закрыть работу.</p>
+        <p>Tehnadzor не заменяет инженера. Он просто помогает держать всё рядом: что проверили, что не прошло, что исправили и какой документ можно выпускать.</p>
+      </div>
+    </section>
+
+    <section class="about-principles about-stage">
+      <article class="about-principle scroll-reveal">
+        <span>01</span>
+        <h3>Контекст остаётся рядом</h3>
+        <p>BIM-элемент, конструкция, проверка и запись в журнале не живут отдельно друг от друга. Это одна цепочка.</p>
+      </article>
+      <article class="about-principle scroll-reveal" data-reveal-delay="90ms">
+        <span>02</span>
+        <h3>Нормативы не прячутся</h3>
+        <p>Допуски и основания видны в момент проверки, а не тогда, когда документ уже почти готов.</p>
+      </article>
+      <article class="about-principle scroll-reveal" data-reveal-delay="180ms">
+        <span>03</span>
+        <h3>Итог собирается по ходу работы</h3>
+        <p>Журнал, замечания, повторный контроль и PDF не выглядят как отдельная жизнь после проверки.</p>
+      </article>
     </section>
 
     <section class="about-closing about-stage">
-      <div class="about-closing__card scroll-reveal" data-reveal-delay="0ms" data-parallax="8">
-        <div class="about-hero__eyebrow">Итог</div>
-        <h3 class="about-section__title">Это сервис для тех, кому важно держать контроль над проектом, а не над кучей разрозненных файлов.</h3>
-          <p>Если коротко, Tehnadzor помогает работать собраннее: видеть проект целиком, быстрее проходить проверки и не терять важные детали по дороге.</p>
+      <div class="about-closing__card scroll-reveal">
+        <h3 class="about-section__title">Tehnadzor нужен, чтобы контроль был понятным.</h3>
+        <p>Меньше ручной сборки. Меньше потерянных замечаний. Больше ясности по тому, что происходит на объекте.</p>
+        <div class="about-closing__summary" aria-label="Ключевые возможности">
+          <span>BIM-контекст</span>
+          <span>Нормативы</span>
+          <span>Журнал</span>
+          <span>Замечания</span>
+          <span>Повторный контроль</span>
+          <span>ITP / PDF</span>
+        </div>
       </div>
     </section>
   </main>
@@ -177,16 +261,54 @@
   </footer>
 
   <script type="module">
-    import { initThemeControls } from "./app/ui/theme.js";
-
-    initThemeControls();
+    import("./app/ui/theme.js")
+      .then(({ initThemeControls }) => {
+        initThemeControls();
+      })
+      .catch(() => {
+        // About has no theme button now. Keep the scroll presentation alive even
+        // when the page is opened through a static server outside the app root.
+      });
 
     const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
     const revealItems = document.querySelectorAll(".scroll-reveal");
     const parallaxItems = document.querySelectorAll("[data-parallax]");
+    const cinematic = document.querySelector(".about-cinematic");
+    const storyStage = document.querySelector(".about-product-stage");
+    const sceneKicker = document.getElementById("aboutSceneKicker");
+    const sceneTitle = document.getElementById("aboutSceneTitle");
+    const sceneText = document.getElementById("aboutSceneText");
+    const scenes = [
+      {
+        kicker: "Проект",
+        title: "Сначала задаёте объект.",
+        text: "Название, дата, инженер, конструкции. Всё, что нужно для нормальной проверки, лежит в одном проекте."
+      },
+      {
+        kicker: "BIM",
+        title: "Затем выбираете конструкцию.",
+        text: "Можно работать вручную или взять элемент из BIM/IFC. Контекст остаётся рядом с проверкой."
+      },
+      {
+        kicker: "Проверка",
+        title: "Проводите контроль.",
+        text: "Вводите фактические данные, видите допуск и сразу понимаете: всё в норме или нужно разбираться."
+      },
+      {
+        kicker: "Замечание",
+        title: "Если есть проблема — фиксируете.",
+        text: "Замечание остаётся связано с исходной проверкой, чтобы потом можно было вернуться и проверить повторно."
+      },
+      {
+        kicker: "Итог",
+        title: "В конце получаете документ.",
+        text: "Журнал, план контроля и итоговое заключение собираются из уже внесённых данных."
+      }
+    ];
 
     if (reduceMotion.matches) {
       revealItems.forEach((item) => item.classList.add("is-visible"));
+      if (storyStage) storyStage.style.setProperty("--story-progress", "1");
     } else {
       const observer = new IntersectionObserver((entries) => {
         entries.forEach((entry) => {
@@ -206,6 +328,20 @@
 
       let ticking = false;
 
+      const updateStory = () => {
+        if (!cinematic || !storyStage) return;
+        const rect = cinematic.getBoundingClientRect();
+        const total = Math.max(1, rect.height - window.innerHeight);
+        const progress = Math.max(0, Math.min(1, -rect.top / total));
+        const index = Math.min(scenes.length - 1, Math.floor(progress * scenes.length));
+        const scene = scenes[index];
+        storyStage.style.setProperty("--story-progress", progress.toFixed(4));
+        storyStage.dataset.scene = String(index);
+        if (sceneKicker) sceneKicker.textContent = scene.kicker;
+        if (sceneTitle) sceneTitle.textContent = scene.title;
+        if (sceneText) sceneText.textContent = scene.text;
+      };
+
       const updateParallax = () => {
         const viewportHeight = window.innerHeight || 1;
         parallaxItems.forEach((item) => {
@@ -216,6 +352,7 @@
           item.style.setProperty("--parallax-y", `${clamped * depth * -1}px`);
           item.style.setProperty("--parallax-scale", `${1 - Math.abs(clamped) * 0.018}`);
         });
+        updateStory();
         ticking = false;
       };
 

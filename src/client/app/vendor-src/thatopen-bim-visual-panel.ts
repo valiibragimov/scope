@@ -13,6 +13,14 @@ import { IfcTypeEnum, type SpatialNode } from "@ifc-lite/data";
 
 import { getCachedProjectIfcFile } from "../services/ifc-file-cache.js";
 import { createSourceModelIdFromFile } from "../services/ifc-import.js";
+import {
+  IFC_NANOCAD_WARNING_MESSAGE,
+  analyzeIfcElementCoordinates,
+  analyzeIfcModelDiagnostics,
+  buildIfcDiagnosticSummary,
+  createViewerNormalizationDecision,
+  shouldShowIfcCoordinateWarning
+} from "../services/ifc-diagnostics.js";
 import type { BimElement } from "../../types/domain.js";
 import { createIfcLiteEngine } from "./ifc-lite-engine.js";
 
@@ -1099,6 +1107,49 @@ function serializeBox3(box) {
   };
 }
 
+function createEmptyIfcMetadata() {
+  return {
+    exporter: null,
+    originatingSystem: null,
+    preprocessorVersion: null,
+    authorization: null,
+    applications: [] as string[],
+    hasNanoCadExporter: false
+  };
+}
+
+function createViewerDiagnosticSummary(elements = [], sourceSummaries = []) {
+  const coordinateSummary = analyzeIfcElementCoordinates(elements);
+  const metadata = createEmptyIfcMetadata();
+  const reasons = new Set<string>();
+
+  for (const sourceSummary of sourceSummaries || []) {
+    if (!sourceSummary) continue;
+    metadata.exporter ||= sourceSummary.exporter || null;
+    metadata.originatingSystem ||= sourceSummary.originatingSystem || null;
+    metadata.preprocessorVersion ||= sourceSummary.preprocessorVersion || null;
+    metadata.authorization ||= sourceSummary.authorization || null;
+    metadata.hasNanoCadExporter ||= Boolean(sourceSummary.hasNanoCadExporter);
+    for (const application of sourceSummary.applications || []) {
+      if (application && !metadata.applications.includes(application)) {
+        metadata.applications.push(application);
+      }
+    }
+    for (const reason of sourceSummary.reasons || []) {
+      reasons.add(reason);
+    }
+  }
+
+  const summary = buildIfcDiagnosticSummary(metadata, coordinateSummary);
+  for (const reason of reasons) {
+    if (!summary.reasons.includes(reason)) {
+      summary.reasons.push(reason);
+    }
+  }
+  summary.isSuspicious = summary.reasons.length > 0;
+  return summary;
+}
+
 async function resolveIfcFile({ projectId, sourceModelId, getCurrentIfcFile }) {
   const currentFile = typeof getCurrentIfcFile === "function" ? getCurrentIfcFile() : null;
   if (currentFile instanceof File && createSourceModelIdFromFile(currentFile) === sourceModelId) {
@@ -1254,51 +1305,57 @@ function createWorkspaceMarkup(workspaceId) {
   return `
     <div class="bim-workspace__backdrop" data-bim-workspace-close="true"></div>
     <section id="${workspaceId}" class="bim-workspace__surface" aria-hidden="true">
-      <header class="bim-workspace__header">
-        <div class="bim-workspace__titlebar">
-          <div class="bim-workspace__header-main">
-            <div class="bim-workspace__intro">
-              <h3 class="bim-workspace__title">Модель проекта</h3>
-            </div>
-            <div class="bim-workspace__actions">
-              <button type="button" class="btn-small btn-secondary lg-btn lg-btn--pill lg-btn--compact bim-workspace__action" data-bim-action="toggle-background" aria-pressed="true">
-                <span class="lg-btn__label">Фон: тёмный</span>
-                <span class="lg-btn__glow" aria-hidden="true"></span>
-              </button>
-              <button type="button" class="btn-small btn-secondary lg-btn lg-btn--pill lg-btn--compact bim-workspace__action" data-bim-action="fit-all">
-                <span class="lg-btn__label">Fit ко всему</span>
-                <span class="lg-btn__glow" aria-hidden="true"></span>
-              </button>
-              <button type="button" class="btn-small btn-secondary lg-btn lg-btn--pill lg-btn--compact bim-workspace__action" data-bim-action="fit-selected">
-                <span class="lg-btn__label">Focus на выбранном</span>
-                <span class="lg-btn__glow" aria-hidden="true"></span>
-              </button>
-              <button type="button" class="btn-small btn-secondary lg-btn lg-btn--pill lg-btn--compact bim-workspace__action" data-bim-action="isolate">
-                <span class="lg-btn__label">Изолировать</span>
-                <span class="lg-btn__glow" aria-hidden="true"></span>
-              </button>
-              <button type="button" class="btn-small btn-secondary lg-btn lg-btn--pill lg-btn--compact bim-workspace__action" data-bim-action="show-all">
-                <span class="lg-btn__label">Показать всё</span>
-                <span class="lg-btn__glow" aria-hidden="true"></span>
-              </button>
-            </div>
-            <div class="bim-workspace__mode-switch" role="tablist" aria-label="Режим BIM-viewer">
-              <button type="button" class="bim-workspace__mode" data-bim-view-mode="2d" aria-selected="false">2D план</button>
-              <button type="button" class="bim-workspace__mode is-active" data-bim-view-mode="3d" aria-selected="true">3D модель</button>
-            </div>
-          </div>
-          <button type="button" class="bim-workspace__close" data-bim-workspace-close="true" aria-label="Закрыть BIM-viewer">×</button>
-        </div>
-      </header>
+      <button type="button" class="bim-workspace__close" data-bim-workspace-close="true" aria-label="Закрыть BIM-viewer">×</button>
       <div class="bim-workspace__toolbar">
         <div class="bim-workspace__level-wrap">
           <span class="bim-workspace__level">Уровень</span>
           <div class="bim-workspace__floors"></div>
         </div>
         <div class="bim-workspace__hint">Клик по BIM-модели выбирает элемент и запускает автоподстановку.</div>
+        <div class="bim-workspace__diagnostics" hidden>
+          <span class="bim-workspace__diagnostic-warning"></span>
+          <button type="button" class="btn-small btn-secondary lg-btn lg-btn--pill lg-btn--compact bim-workspace__normalize" data-bim-normalize-display="true" aria-pressed="false">
+            <span class="lg-btn__label">Исправить отображение модели</span>
+            <span class="lg-btn__glow" aria-hidden="true"></span>
+          </button>
+          <span class="bim-workspace__normalized-badge" hidden>Отображение нормализовано</span>
+        </div>
       </div>
       <div class="bim-workspace__body">
         <div class="bim-workspace__stage-area">
+          <div class="bim-workspace__model-head">
+            <div class="bim-workspace__header-main">
+              <div class="bim-workspace__intro">
+                <h3 class="bim-workspace__title">Модель проекта</h3>
+              </div>
+              <div class="bim-workspace__actions">
+                <button type="button" class="btn-small btn-secondary lg-btn lg-btn--pill lg-btn--compact bim-workspace__action" data-bim-action="toggle-background" aria-pressed="true">
+                  <span class="lg-btn__label">Фон: тёмный</span>
+                  <span class="lg-btn__glow" aria-hidden="true"></span>
+                </button>
+                <button type="button" class="btn-small btn-secondary lg-btn lg-btn--pill lg-btn--compact bim-workspace__action" data-bim-action="fit-all">
+                  <span class="lg-btn__label">Fit ко всему</span>
+                  <span class="lg-btn__glow" aria-hidden="true"></span>
+                </button>
+                <button type="button" class="btn-small btn-secondary lg-btn lg-btn--pill lg-btn--compact bim-workspace__action" data-bim-action="fit-selected">
+                  <span class="lg-btn__label">Focus на выбранном</span>
+                  <span class="lg-btn__glow" aria-hidden="true"></span>
+                </button>
+                <button type="button" class="btn-small btn-secondary lg-btn lg-btn--pill lg-btn--compact bim-workspace__action" data-bim-action="isolate">
+                  <span class="lg-btn__label">Изолировать</span>
+                  <span class="lg-btn__glow" aria-hidden="true"></span>
+                </button>
+                <button type="button" class="btn-small btn-secondary lg-btn lg-btn--pill lg-btn--compact bim-workspace__action" data-bim-action="show-all">
+                  <span class="lg-btn__label">Показать всё</span>
+                  <span class="lg-btn__glow" aria-hidden="true"></span>
+                </button>
+              </div>
+              <div class="bim-workspace__mode-switch" role="tablist" aria-label="Режим BIM-viewer">
+                <button type="button" class="bim-workspace__mode" data-bim-view-mode="2d" aria-selected="false">2D план</button>
+                <button type="button" class="bim-workspace__mode is-active" data-bim-view-mode="3d" aria-selected="true">3D модель</button>
+              </div>
+            </div>
+          </div>
           <div class="bim-workspace__stage bim-workspace__stage--3d is-active">
             <div class="bim-workspace__canvas3d"></div>
             <div class="bim-workspace__empty3d" hidden></div>
@@ -1437,10 +1494,14 @@ async function createEngine({
 
   const modelRoot = new THREE.Group();
   scene.add(modelRoot);
+  const viewerDisplayOffset = new THREE.Vector3();
+  let viewerDisplayNormalized = false;
+  let viewerNormalizationDecision = createViewerNormalizationDecision({ boundingBox: null });
 
   const elementEntries = new Map();
   const modelEntries = new Map();
   const modelHandles = [];
+  const sourceDiagnosticSummaries = [];
   const selectableKeys = new Set();
   const selectedKeys = new Set();
   const loadedModelIds = new Set();
@@ -1459,8 +1520,54 @@ async function createEngine({
     camera: null,
     lastOpenView: null,
     lastFitAll: null,
+    viewerNormalization: null,
+    diagnosticSummary: null,
     backgroundTheme
   };
+
+  function getDisplayBox(rawBox) {
+    if (!isFiniteBox3(rawBox) || rawBox.isEmpty()) return null;
+    const box = rawBox.clone();
+    if (viewerDisplayNormalized) {
+      box.translate(viewerDisplayOffset);
+    }
+    return box;
+  }
+
+  function getRawVisibleWorldBox() {
+    const union = new THREE.Box3();
+    let hasGeometry = false;
+
+    for (const entry of elementEntries.values()) {
+      if (!entry.object.visible) continue;
+      if (unionIntoBox(union, entry.rawBounds)) {
+        hasGeometry = true;
+      }
+    }
+
+    return hasGeometry ? union : null;
+  }
+
+  function getRawWorldBox() {
+    const union = new THREE.Box3();
+    let hasGeometry = false;
+
+    for (const model of modelEntries.values()) {
+      if (unionIntoBox(union, model.rawBox)) {
+        hasGeometry = true;
+      }
+    }
+
+    return hasGeometry ? union : null;
+  }
+
+  function syncViewerNormalizationDebug() {
+    debugState.viewerNormalization = {
+      normalized: viewerDisplayNormalized,
+      offset: serializeVector3(viewerDisplayOffset),
+      decision: viewerNormalizationDecision
+    };
+  }
 
   function ensureModelEntry(modelId) {
     if (modelEntries.has(modelId)) {
@@ -1471,10 +1578,17 @@ async function createEngine({
     object.name = `model:${modelId}`;
     modelRoot.add(object);
 
+    const rawBox = new THREE.Box3();
     const entry = {
       modelId,
       object,
-      box: new THREE.Box3(),
+      rawBox,
+      get box() {
+        return getDisplayBox(rawBox);
+      },
+      getFullBBox() {
+        return getDisplayBox(rawBox);
+      },
       lookupKeys: new Set(),
       async getMergedBox(localIds) {
         const union = new THREE.Box3();
@@ -1484,11 +1598,13 @@ async function createEngine({
           const lookupKey = createElementLookupKey(modelId, localId);
           const elementEntry = elementEntries.get(lookupKey);
           if (!elementEntry) continue;
+          const elementBounds = elementEntry.bounds;
+          if (!isFiniteBox3(elementBounds) || elementBounds.isEmpty()) continue;
           if (!hasBounds) {
-            union.copy(elementEntry.bounds);
+            union.copy(elementBounds);
             hasBounds = true;
           } else {
-            union.union(elementEntry.bounds);
+            union.union(elementBounds);
           }
         }
 
@@ -1530,10 +1646,11 @@ async function createEngine({
 
     modelEntry.object.add(object);
     modelEntry.lookupKeys.add(lookupKey);
-    if (modelEntry.box.isEmpty()) {
-      modelEntry.box.copy(bounds);
+    const rawBounds = bounds.clone();
+    if (modelEntry.rawBox.isEmpty()) {
+      modelEntry.rawBox.copy(rawBounds);
     } else {
-      modelEntry.box.union(bounds);
+      modelEntry.rawBox.union(rawBounds);
     }
 
     elementEntries.set(lookupKey, {
@@ -1542,8 +1659,13 @@ async function createEngine({
       expressId,
       element,
       object,
-      bounds,
-      center: bounds.getCenter(new THREE.Vector3()),
+      rawBounds,
+      get bounds() {
+        return getDisplayBox(rawBounds);
+      },
+      get center() {
+        return getDisplayBox(rawBounds)?.getCenter(new THREE.Vector3()) || rawBounds.getCenter(new THREE.Vector3());
+      },
       pickables,
       materials
     });
@@ -1600,6 +1722,10 @@ async function createEngine({
 
         if (resolved?.file) {
           const bytes = new Uint8Array(await resolved.file.arrayBuffer());
+          const headerText = new TextDecoder("utf-8").decode(bytes.slice(0, Math.min(bytes.byteLength, IFC_HEADER_SCAN_BYTES)));
+          sourceDiagnosticSummaries.push(
+            analyzeIfcModelDiagnostics(headerText, [...sourceElements.values()])
+          );
           const { scaleToMeters: lengthUnitScale } = resolveIfcLengthUnitScaleFromBytes(bytes);
           const modelID = ifcApi.OpenModel(bytes, {
             COORDINATE_TO_ORIGIN: true
@@ -1700,6 +1826,10 @@ async function createEngine({
     }
   }
 
+  const diagnosticSummary = createViewerDiagnosticSummary(allElements, sourceDiagnosticSummaries);
+  debugState.diagnosticSummary = diagnosticSummary;
+  syncViewerNormalizationDebug();
+
   const fragments = {
     list: new Map([...modelEntries.entries()].map(([modelId, entry]) => [modelId, entry])),
     async getPositions(modelIdMap) {
@@ -1744,11 +1874,13 @@ async function createEngine({
 
     for (const entry of elementEntries.values()) {
       if (!entry.object.visible) continue;
+      const entryBounds = entry.bounds;
+      if (!isFiniteBox3(entryBounds) || entryBounds.isEmpty()) continue;
       if (!hasGeometry) {
-        union.copy(entry.bounds);
+        union.copy(entryBounds);
         hasGeometry = true;
       } else {
-        union.union(entry.bounds);
+        union.union(entryBounds);
       }
     }
 
@@ -1986,6 +2118,8 @@ async function createEngine({
 
   debugState.loadedModelIds = [...loadedModelIds];
   debugState.missingSources = [...missingSources];
+  debugState.diagnosticSummary = diagnosticSummary;
+  syncViewerNormalizationDebug();
   debugState.fragmentModels = [...fragments.list.entries()].map(([modelId, model]) => ({
     modelId,
     visible: model?.object?.visible ?? null,
@@ -2006,6 +2140,34 @@ async function createEngine({
     },
     setBackgroundTheme(nextTheme) {
       applyBackgroundTheme(nextTheme);
+    },
+    get diagnosticSummary() {
+      return diagnosticSummary;
+    },
+    get viewerNormalization() {
+      return {
+        normalized: viewerDisplayNormalized,
+        offset: serializeVector3(viewerDisplayOffset),
+        decision: viewerNormalizationDecision
+      };
+    },
+    setViewerNormalization(enabled) {
+      const rawBox = getRawVisibleWorldBox() || getRawWorldBox();
+      const forceNormalization = Boolean(enabled && diagnosticSummary.isSuspicious);
+      viewerNormalizationDecision = createViewerNormalizationDecision({
+        boundingBox: serializeBox3(rawBox),
+        force: forceNormalization
+      });
+      viewerDisplayNormalized = Boolean(enabled && viewerNormalizationDecision.shouldNormalize);
+      viewerDisplayOffset.set(
+        viewerDisplayNormalized ? viewerNormalizationDecision.offset.x : 0,
+        viewerDisplayNormalized ? viewerNormalizationDecision.offset.y : 0,
+        viewerDisplayNormalized ? viewerNormalizationDecision.offset.z : 0
+      );
+      modelRoot.position.copy(viewerDisplayOffset);
+      modelRoot.updateMatrixWorld(true);
+      syncViewerNormalizationDebug();
+      return viewerDisplayNormalized;
     },
     get currentViewId() {
       return currentViewId;
@@ -2093,6 +2255,8 @@ async function createEngine({
 
       debugState.loadedModelIds = [...loadedModelIds];
       debugState.missingSources = [...missingSources];
+      debugState.diagnosticSummary = diagnosticSummary;
+      syncViewerNormalizationDebug();
       debugState.worldBox = serializeBox3(getVisibleWorldBox() || getWorldBoundingBox(fragments));
       debugState.fragmentModels = [...fragments.list.entries()].map(([modelId, model]) => ({
         modelId,
@@ -2238,6 +2402,10 @@ export function ensureBimVisualPanel({
   const workspaceEmptyEl = workspace.querySelector<HTMLElement>(".bim-workspace__empty3d");
   const workspaceLegendEl = workspace.querySelector<HTMLElement>(".bim-workspace__legend");
   const workspaceHintEl = workspace.querySelector<HTMLElement>(".bim-workspace__hint");
+  const workspaceDiagnosticsEl = workspace.querySelector<HTMLElement>(".bim-workspace__diagnostics");
+  const workspaceDiagnosticWarningEl = workspace.querySelector<HTMLElement>(".bim-workspace__diagnostic-warning");
+  const workspaceNormalizeButton = workspace.querySelector<HTMLButtonElement>("[data-bim-normalize-display]");
+  const workspaceNormalizedBadgeEl = workspace.querySelector<HTMLElement>(".bim-workspace__normalized-badge");
   const workspaceLevelEl = workspace.querySelector<HTMLElement>(".bim-workspace__level");
   const workspaceFloorsEl = workspace.querySelector<HTMLElement>(".bim-workspace__floors");
   const workspaceInspectorTitleEl = workspace.querySelector<HTMLElement>(".bim-workspace__inspector-title");
@@ -2277,6 +2445,7 @@ export function ensureBimVisualPanel({
   let queuedRender = false;
   let lastIfcAvailabilitySignature = "";
   let lastIfcAvailabilityState = false;
+  let normalizationRequested = false;
 
   setWorkspaceInteractivity(false);
 
@@ -2378,6 +2547,37 @@ export function ensureBimVisualPanel({
     workspaceEmptyEl.hidden = !text;
   }
 
+  function syncViewerDiagnosticsUi(engineInstance = engine) {
+    const summary = engineInstance?.diagnosticSummary || null;
+    const normalization = engineInstance?.viewerNormalization || null;
+    const canNormalize = Boolean(normalization?.decision?.shouldNormalize);
+    const shouldWarn = shouldShowIfcCoordinateWarning(summary) || canNormalize;
+    const normalized = Boolean(normalization?.normalized);
+    const hasElementDisplayRepair = Number(normalization?.displayRepair?.correctedCount || 0) > 0;
+    const normalizedStatus = hasElementDisplayRepair ? "Применена коррекция отображения элементов" : "";
+    const showNormalizeButton = Boolean(shouldWarn && !normalized);
+
+    if (workspaceDiagnosticsEl) {
+      workspaceDiagnosticsEl.hidden = !shouldWarn && !normalized;
+    }
+    if (workspaceDiagnosticWarningEl) {
+      workspaceDiagnosticWarningEl.textContent = normalizedStatus || (shouldWarn ? IFC_NANOCAD_WARNING_MESSAGE : "");
+      workspaceDiagnosticWarningEl.hidden = !shouldWarn && !normalizedStatus;
+    }
+    if (workspaceNormalizeButton) {
+      workspaceNormalizeButton.hidden = !showNormalizeButton;
+      workspaceNormalizeButton.disabled = !showNormalizeButton;
+      workspaceNormalizeButton.setAttribute("aria-pressed", normalized ? "true" : "false");
+      const label = workspaceNormalizeButton.querySelector(".lg-btn__label");
+      if (label) {
+        label.textContent = "Исправить отображение модели";
+      }
+    }
+    if (workspaceNormalizedBadgeEl) {
+      workspaceNormalizedBadgeEl.hidden = !normalized;
+    }
+  }
+
   function updateInspector(element, floorLabel = "") {
     if (element) {
       workspaceInspectorTitleEl.textContent = getElementLabel(element, labelBuilder);
@@ -2429,6 +2629,7 @@ export function ensureBimVisualPanel({
     lastAppliedMode = "";
     lastAppliedViewId = "";
     lastSyncedEngine = null;
+    syncViewerDiagnosticsUi(null);
   }
 
   async function ensureEngine(projectId, sourceModelIds, allElements, nonce) {
@@ -2469,6 +2670,8 @@ export function ensureBimVisualPanel({
     engine = nextEngine;
     engineSignature = nextSignature;
     engine.setBackgroundTheme(currentBackgroundTheme);
+    engine.setViewerNormalization?.(normalizationRequested);
+    syncViewerDiagnosticsUi(engine);
     return engine;
   }
 
@@ -2518,6 +2721,8 @@ export function ensureBimVisualPanel({
     }
 
     engineInstance.closeViews();
+    engineInstance.setViewerNormalization?.(normalizationRequested);
+    syncViewerDiagnosticsUi(engineInstance);
     workspaceHintEl.textContent = "3D режим показывает BIM-модель проекта, собранную из IFC-элементов. Доступны orbit, pan, zoom, isolate и fit.";
     workspaceLevelEl.textContent = "3D модель";
     setViewportMessage("");
@@ -2622,6 +2827,7 @@ export function ensureBimVisualPanel({
     if (!engineInstance || nonce !== renderNonce) {
       return;
     }
+    syncViewerDiagnosticsUi(engineInstance);
 
     const loadedModelIds = engineInstance.loadedModelIds;
     const selectableMap = filterModelIdMap(buildModelIdMapForElements(allElements), loadedModelIds);
@@ -2678,6 +2884,37 @@ export function ensureBimVisualPanel({
       currentIsolatedId = "";
       void api.render();
     });
+  });
+
+  workspaceNormalizeButton?.addEventListener("click", async () => {
+    try {
+      if (!engine) {
+        await api.render();
+      }
+      if (!engine) return;
+      if (engine.viewerNormalization?.normalized) {
+        syncViewerDiagnosticsUi(engine);
+        return;
+      }
+
+      normalizationRequested = true;
+      const normalized = engine.setViewerNormalization?.(normalizationRequested);
+      normalizationRequested = Boolean(normalized);
+      syncViewerDiagnosticsUi(engine);
+
+      if (currentViewMode === "3d") {
+        await engine.showAll();
+        const allElements = typeof getAllElements === "function" ? getAllElements() : getFilteredElements();
+        const allMap = filterModelIdMap(buildModelIdMapForElements(allElements), engine.loadedModelIds);
+        const fitted = await engine.fitAll(allMap);
+        if (!fitted) {
+          await engine.fitWorld();
+        }
+      }
+    } catch (error) {
+      console.error("[BIM viewer] display normalization failed", error);
+      setViewportMessage("Не удалось применить нормализацию отображения. Проверьте консоль браузера.");
+    }
   });
 
   workspaceActionButtons.forEach((button) => {

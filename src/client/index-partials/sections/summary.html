@@ -3,102 +3,120 @@
         <h2>Итоговое заключение</h2>
         <p class="subtitle">Сводный результат по четырём модулям.</p>
 
-        <!-- Мини-карточки статуса модулей -->
-        <div class="summary-modules-grid">
-          <div class="summary-module-card" data-module="geo">
-            <div class="summary-module-header">
-              <span class="summary-module-icon">📍</span>
-              <span class="summary-module-name">Геодезия</span>
-              <div class="summary-module-status" id="summaryModuleStatusGeo">
-                <span class="summary-status-badge empty">Нет проверок</span>
+        <div class="summary-overview-row">
+          <!-- Мини-карточки статуса модулей -->
+          <div class="summary-modules-grid" aria-label="Статусы модулей">
+            <div class="summary-module-card" data-module="geo">
+              <div class="summary-module-header">
+                <span class="summary-module-icon">📍</span>
+                <span class="summary-module-name">Геодезия</span>
+                <div class="summary-module-status" id="summaryModuleStatusGeo">
+                  <span class="summary-status-badge empty">Нет проверок</span>
+                </div>
+              </div>
+              <div class="summary-module-stats" id="summaryModuleStatsGeo">
+                <span class="summary-module-stat">
+                  <span class="summary-module-stat-label">Проверок</span>
+                  <strong class="summary-module-stat-value">Пока нет</strong>
+                </span>
+                <span class="summary-module-stat">
+                  <span class="summary-module-stat-label">Отклонений</span>
+                  <strong class="summary-module-stat-value">Нет данных</strong>
+                </span>
+                <span class="summary-module-stat summary-module-stat--wide">
+                  <span class="summary-module-stat-label">Последняя проверка</span>
+                  <strong class="summary-module-stat-value">Пока не проводилась</strong>
+                </span>
               </div>
             </div>
-            <div class="summary-module-stats" id="summaryModuleStatsGeo">
-              <span class="summary-module-stat">
-                <span class="summary-module-stat-label">Проверок</span>
-                <strong class="summary-module-stat-value">Пока нет</strong>
-              </span>
-              <span class="summary-module-stat">
-                <span class="summary-module-stat-label">Отклонений</span>
-                <strong class="summary-module-stat-value">Нет данных</strong>
-              </span>
-              <span class="summary-module-stat summary-module-stat--wide">
-                <span class="summary-module-stat-label">Последняя проверка</span>
-                <strong class="summary-module-stat-value">Пока не проводилась</strong>
-              </span>
+
+            <div class="summary-module-card" data-module="reinforcement">
+              <div class="summary-module-header">
+                <span class="summary-module-icon">🔩</span>
+                <span class="summary-module-name">Армирование</span>
+                <div class="summary-module-status" id="summaryModuleStatusReinf">
+                  <span class="summary-status-badge empty">Нет проверок</span>
+                </div>
+              </div>
+              <div class="summary-module-stats" id="summaryModuleStatsReinf">
+                <span class="summary-module-stat">
+                  <span class="summary-module-stat-label">Проверок</span>
+                  <strong class="summary-module-stat-value">Пока нет</strong>
+                </span>
+                <span class="summary-module-stat">
+                  <span class="summary-module-stat-label">Отклонений</span>
+                  <strong class="summary-module-stat-value">Нет данных</strong>
+                </span>
+                <span class="summary-module-stat summary-module-stat--wide">
+                  <span class="summary-module-stat-label">Последняя проверка</span>
+                  <strong class="summary-module-stat-value">Пока не проводилась</strong>
+                </span>
+              </div>
+            </div>
+
+            <div class="summary-module-card" data-module="geometry">
+              <div class="summary-module-header">
+                <span class="summary-module-icon">📐</span>
+                <span class="summary-module-name">Геометрия</span>
+                <div class="summary-module-status" id="summaryModuleStatusGeom">
+                  <span class="summary-status-badge empty">Нет проверок</span>
+                </div>
+              </div>
+              <div class="summary-module-stats" id="summaryModuleStatsGeom">
+                <span class="summary-module-stat">
+                  <span class="summary-module-stat-label">Проверок</span>
+                  <strong class="summary-module-stat-value">Пока нет</strong>
+                </span>
+                <span class="summary-module-stat">
+                  <span class="summary-module-stat-label">Отклонений</span>
+                  <strong class="summary-module-stat-value">Нет данных</strong>
+                </span>
+                <span class="summary-module-stat summary-module-stat--wide">
+                  <span class="summary-module-stat-label">Последняя проверка</span>
+                  <strong class="summary-module-stat-value">Пока не проводилась</strong>
+                </span>
+              </div>
+            </div>
+
+            <div class="summary-module-card" data-module="strength">
+              <div class="summary-module-header">
+                <span class="summary-module-icon">💪</span>
+                <span class="summary-module-name">Прочность</span>
+                <div class="summary-module-status" id="summaryModuleStatusStrength">
+                  <span class="summary-status-badge empty">Нет проверок</span>
+                </div>
+              </div>
+              <div class="summary-module-stats" id="summaryModuleStatsStrength">
+                <span class="summary-module-stat">
+                  <span class="summary-module-stat-label">Проверок</span>
+                  <strong class="summary-module-stat-value">Пока нет</strong>
+                </span>
+                <span class="summary-module-stat">
+                  <span class="summary-module-stat-label">Отклонений</span>
+                  <strong class="summary-module-stat-value">Нет данных</strong>
+                </span>
+                <span class="summary-module-stat summary-module-stat--wide">
+                  <span class="summary-module-stat-label">Последняя проверка</span>
+                  <strong class="summary-module-stat-value">Пока не проводилась</strong>
+                </span>
+              </div>
             </div>
           </div>
 
-          <div class="summary-module-card" data-module="reinforcement">
-            <div class="summary-module-header">
-              <span class="summary-module-icon">🔩</span>
-              <span class="summary-module-name">Армирование</span>
-              <div class="summary-module-status" id="summaryModuleStatusReinf">
-                <span class="summary-status-badge empty">Нет проверок</span>
+          <div class="summary-issues-panel" id="summaryIssuesPanel">
+            <div class="summary-issues-head">
+              <div>
+                <h3 class="summary-issues-title">Замечания и корректирующие действия</h3>
+                <p class="summary-issues-description">
+                  Связка нарушения, замечания, повторного контроля и закрытия для итогового заключения.
+                </p>
               </div>
+              <div class="summary-issues-stats" id="summaryIssuesStats" aria-label="Статистика замечаний"></div>
             </div>
-            <div class="summary-module-stats" id="summaryModuleStatsReinf">
-              <span class="summary-module-stat">
-                <span class="summary-module-stat-label">Проверок</span>
-                <strong class="summary-module-stat-value">Пока нет</strong>
-              </span>
-              <span class="summary-module-stat">
-                <span class="summary-module-stat-label">Отклонений</span>
-                <strong class="summary-module-stat-value">Нет данных</strong>
-              </span>
-              <span class="summary-module-stat summary-module-stat--wide">
-                <span class="summary-module-stat-label">Последняя проверка</span>
-                <strong class="summary-module-stat-value">Пока не проводилась</strong>
-              </span>
+            <div class="summary-issues-empty" id="summaryIssuesEmpty">
+              Замечания по проверкам пока не создавались.
             </div>
-          </div>
-
-          <div class="summary-module-card" data-module="geometry">
-            <div class="summary-module-header">
-              <span class="summary-module-icon">📐</span>
-              <span class="summary-module-name">Геометрия</span>
-              <div class="summary-module-status" id="summaryModuleStatusGeom">
-                <span class="summary-status-badge empty">Нет проверок</span>
-              </div>
-            </div>
-            <div class="summary-module-stats" id="summaryModuleStatsGeom">
-              <span class="summary-module-stat">
-                <span class="summary-module-stat-label">Проверок</span>
-                <strong class="summary-module-stat-value">Пока нет</strong>
-              </span>
-              <span class="summary-module-stat">
-                <span class="summary-module-stat-label">Отклонений</span>
-                <strong class="summary-module-stat-value">Нет данных</strong>
-              </span>
-              <span class="summary-module-stat summary-module-stat--wide">
-                <span class="summary-module-stat-label">Последняя проверка</span>
-                <strong class="summary-module-stat-value">Пока не проводилась</strong>
-              </span>
-            </div>
-          </div>
-
-          <div class="summary-module-card" data-module="strength">
-            <div class="summary-module-header">
-              <span class="summary-module-icon">💪</span>
-              <span class="summary-module-name">Прочность</span>
-              <div class="summary-module-status" id="summaryModuleStatusStrength">
-                <span class="summary-status-badge empty">Нет проверок</span>
-              </div>
-            </div>
-            <div class="summary-module-stats" id="summaryModuleStatsStrength">
-              <span class="summary-module-stat">
-                <span class="summary-module-stat-label">Проверок</span>
-                <strong class="summary-module-stat-value">Пока нет</strong>
-              </span>
-              <span class="summary-module-stat">
-                <span class="summary-module-stat-label">Отклонений</span>
-                <strong class="summary-module-stat-value">Нет данных</strong>
-              </span>
-              <span class="summary-module-stat summary-module-stat--wide">
-                <span class="summary-module-stat-label">Последняя проверка</span>
-                <strong class="summary-module-stat-value">Пока не проводилась</strong>
-              </span>
-            </div>
+            <div class="summary-issues-list" id="summaryIssuesList"></div>
           </div>
         </div>
 

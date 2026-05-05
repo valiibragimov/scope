@@ -4601,10 +4601,8 @@ document.getElementById("btnGeo").addEventListener("click", () => {
   if (!validateProject(currentProjectId)) return;
 
   let shouldAutoSave = true;
-  let journalAdded = false;
   const scheduleAutoSave = () => {
     if (!shouldAutoSave) return;
-    if (journalAdded) skipGeoJournalOnce = true;
     const saveBtn = document.getElementById("btnSaveNode");
     if (saveBtn) saveBtn.click();
   };
@@ -4778,31 +4776,6 @@ document.getElementById("btnGeo").addEventListener("click", () => {
     // НЕ обновляем статус узла при проверке - это side effect!
     // Статус должен вычисляться только при сохранении/обновлении узла
 
-    // Сохранение в журнал
-    const details = columns.map((col, i) => {
-      const pX = parseFloat(col.projX);
-      const fX = parseFloat(col.factX);
-      const pY = parseFloat(col.projY);
-      const fY = parseFloat(col.factY);
-      if (isNaN(pX) || isNaN(fX) || isNaN(pY) || isNaN(fY)) {
-        return `К${i+1}: не заполнено`;
-      }
-      const dX = Math.abs(fX - pX);
-      const dY = Math.abs(fY - pY);
-      return `К${i+1}: ΔX=${dX.toFixed(1)}, ΔY=${dY.toFixed(1)}`;
-    }).join("; ");
-
-    const context = [columnMark, floor].filter(Boolean).join(", ") || "Колонны";
-
-    addJournalEntry({
-      module: "Геодезия",
-      status: allOk ? "в норме" : "превышено",
-      context: context,
-      details: details,
-      construction: getCurrentConstructionKey()
-    });
-    journalAdded = true;
-
     return;
   }
 
@@ -4974,17 +4947,6 @@ document.getElementById("btnGeo").addEventListener("click", () => {
       }
     }).join("; ");
 
-    const context = floor ? `Этаж ${floor}, ${wallEntityPlural}` : wallEntityPlural;
-
-    addJournalEntry({
-      module: "Геодезия",
-      status: allOk ? "в норме" : "превышено",
-      context: context,
-      details: details,
-      construction: getCurrentConstructionKey()
-    });
-    journalAdded = true;
-
     return;
   }
 
@@ -5150,17 +5112,6 @@ document.getElementById("btnGeo").addEventListener("click", () => {
       }
     }).join("; ");
 
-    const context = floor ? `Этаж ${floor}, Балки` : "Балки";
-
-    addJournalEntry({
-      module: "Геодезия",
-      status: allOk ? "в норме" : "превышено",
-      context: context,
-      details: details,
-      construction: getCurrentConstructionKey()
-    });
-    journalAdded = true;
-
     return;
   }
 
@@ -5263,21 +5214,6 @@ document.getElementById("btnGeo").addEventListener("click", () => {
   // ВАЖНО: Кнопка "Проверить" НЕ должна изменять состояние узла
   // Она только показывает расчёт в нижнем блоке без side effects
 
-  const details = checks
-    .map(c => `Δ${c.axis}=${c.dev.toFixed(1)} мм`)
-    .join("; ");
-  const flatnessDetails = flatnessData && flatnessComplete
-    ? `Плоскостность=${flatnessData.actual.toFixed(1)} мм при допуске ${flatnessData.tolerance.toFixed(1)} мм`
-    : "";
-
-  addJournalEntry({
-    module: "Геодезия",
-    status: allOk ? "в норме" : "превышено",
-    context: floor ? `${floor}-${axisState.location || axisState.nodeLabel}` : (axisState.location || axisState.nodeLabel),
-    details: [details, flatnessDetails].filter(Boolean).join("; "),
-    construction: getCurrentConstructionKey()
-  });
-  journalAdded = true;
 });
 
 document.getElementById("btnSaveNode").addEventListener("click", async () => {

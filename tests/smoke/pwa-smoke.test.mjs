@@ -2,7 +2,7 @@ import test, { after, before } from "node:test";
 import assert from "node:assert/strict";
 import { dirname, resolve } from "node:path";
 import { readdir, readFile } from "node:fs/promises";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { startStaticServer } from "./helpers/static-server.mjs";
 
@@ -75,6 +75,101 @@ test("index page still wires PWA registration and manifest link", async () => {
   assert.equal(response.status, 200);
   assert.match(html, /rel="manifest" href="manifest\.json"/);
   assert.match(html, /navigator\.serviceWorker\.register\('sw\.js', \{ updateViaCache: 'none' \}\)/);
+});
+
+test("journal exposes the issue registry workflow", async () => {
+  const response = await fetch(`${staticServer.url}/index.html`);
+  const html = await response.text();
+  const journalSource = await readFile(resolve(projectRoot, "src/client/app/modules/journal.ts"), "utf8");
+  const appSource = await readFile(resolve(projectRoot, "src/client/app.ts"), "utf8");
+  const summarySource = await readFile(resolve(projectRoot, "src/client/app/modules/summary.ts"), "utf8");
+  const css = await readFile(resolve(projectRoot, "style.css"), "utf8");
+
+  assert.equal(response.status, 200);
+  assert.match(html, /id="journalIssuesPanel"/u);
+  assert.match(html, /id="journalIssueList"/u);
+  assert.match(html, /id="summaryIssuesPanel"/u);
+  assert.match(html, /summary-overview-row/u);
+  assert.match(html, /Замечания и корректирующие действия/u);
+  assert.match(html, /Создайте замечание из строки журнала/u);
+  assert.match(journalSource, /from "\.\.\/services\/issues\.js"/u);
+  assert.match(journalSource, /createIssueFromJournalEntry/u);
+  assert.match(journalSource, /updateProjectIssueStatus/u);
+  assert.match(journalSource, /deleteIssueFromRegistry/u);
+  assert.match(journalSource, /deleteProjectIssue/u);
+  assert.match(journalSource, /findGeoNodeKeyForJournalEntry/u);
+  assert.match(journalSource, /startRepeatControlForIssue/u);
+  assert.match(journalSource, /linkRepeatControlFromJournalEntry/u);
+  assert.match(journalSource, /Закрытие доступно только после повторного контроля/u);
+  assert.doesNotMatch(journalSource, /entry\.context\.includes\(nodeId\)/u);
+  assert.doesNotMatch(appSource, /if \(journalAdded\) skipGeoJournalOnce = true/u);
+  assert.match(journalSource, /repeatControlJournalEntryId/u);
+  assert.match(journalSource, /Повторный контроль/u);
+  assert.match(summarySource, /loadProjectIssues/u);
+  assert.match(summarySource, /renderSummaryIssuesPanel/u);
+  assert.match(summarySource, /buildSummaryIssueReportItems/u);
+  assert.match(summarySource, /Merge inspections with module collections/u);
+  assert.match(summarySource, /Открытых замечаний/u);
+  assert.match(summarySource, /Повторный контроль/u);
+  assert.match(css, /summary-status-badge\.resolved/u);
+  assert.match(summarySource, /summary-issue-registry__header/u);
+  assert.match(summarySource, /summary-issue-registry__item/u);
+  assert.match(css, /summary-issue-registry__row/u);
+  assert.match(css, /summary-overview-row/u);
+  assert.match(css, /\.summary-issues-list\s*\{[\s\S]*?max-height:/u);
+  assert.match(css, /\.summary-issues-list\s*\{[\s\S]*?overflow-y:\s*auto/u);
+  assert.match(css, /\.journal-issue-list\s*\{[\s\S]*?max-height:/u);
+  assert.match(css, /\.journal-issue-list\s*\{[\s\S]*?overflow-y:\s*auto/u);
+  assert.match(css, /#journal \.journal-issues-panel\.card:hover/u);
+});
+
+test("control plan module exposes ITP workflow", async () => {
+  const response = await fetch(`${staticServer.url}/index.html`);
+  const html = await response.text();
+  const runtimeSource = await readFile(resolve(projectRoot, "src/client/app/module-runtime.ts"), "utf8");
+  const serviceSource = await readFile(resolve(projectRoot, "src/client/app/services/control-plan.ts"), "utf8");
+  const moduleSource = await readFile(resolve(projectRoot, "src/client/app/modules/control-plan.ts"), "utf8");
+  const summarySource = await readFile(resolve(projectRoot, "src/client/app/modules/summary.ts"), "utf8");
+  const css = await readFile(resolve(projectRoot, "style.css"), "utf8");
+
+  assert.equal(response.status, 200);
+  assert.match(html, /data-target="controlPlan"/u);
+  assert.match(html, /id="controlPlan"/u);
+  assert.match(html, /Матрица ITP/u);
+  assert.match(html, /id="controlPlanStatusFilters"/u);
+  assert.match(html, /id="controlPlanSearch"/u);
+  assert.match(html, /id="btnControlPlanExportCsv"/u);
+  assert.match(html, /id="btnControlPlanExportPdf"/u);
+  assert.match(runtimeSource, /modules\/control-plan\.js/u);
+  assert.match(serviceSource, /loadProjectControlPlan/u);
+  assert.match(serviceSource, /getInspectionConfig/u);
+  assert.match(serviceSource, /loadJournalEntries/u);
+  assert.match(serviceSource, /loadProjectIssues/u);
+  assert.match(serviceSource, /sourceRowMap/u);
+  assert.match(serviceSource, /decodeSourceContext/u);
+  assert.match(serviceSource, /linkedProjectRecords/u);
+  assert.match(serviceSource, /recordHasJournalLink/u);
+  assert.match(serviceSource, /formworkElementName/u);
+  assert.doesNotMatch(serviceSource, /record\.sourceId\s*\?\?\s*""/u);
+  assert.doesNotMatch(serviceSource, /rowMap\.size\s*===\s*0\s*&&\s*options\.fallbackConstruction/u);
+  assert.match(moduleSource, /updateControlPlan/u);
+  assert.match(moduleSource, /control-plan-task/u);
+  assert.match(moduleSource, /controlPlanStatusFilter/u);
+  assert.match(moduleSource, /activateAppTarget/u);
+  assert.match(moduleSource, /data-control-plan-target/u);
+  assert.match(moduleSource, /exportControlPlanCsv/u);
+  assert.match(moduleSource, /exportControlPlanPdf/u);
+  assert.match(moduleSource, /ensureJsPdfLoaded/u);
+  assert.match(moduleSource, /loadDocumentRequisites/u);
+  assert.match(summarySource, /План контроля \/ ITP/u);
+  assert.match(summarySource, /loadDocumentRequisites/u);
+  assert.match(summarySource, /missingRequiredChecks/u);
+  assert.match(css, /control-plan-table/u);
+  assert.match(css, /control-plan-filter-btn/u);
+  assert.match(css, /control-plan-toolbar-actions/u);
+  assert.match(css, /control-plan-next-action/u);
+  assert.match(css, /control-plan-status--blocked/u);
+  assert.match(css, /#btnControlPlanRefresh\.btn-small/u);
 });
 
 test("bim viewer runtime assets are reachable after client build", async () => {
@@ -182,15 +277,53 @@ test("summary analytics keeps data preparation outside UI block", async () => {
 });
 
 test("knowledge runtime imports article data and content helpers", async () => {
+  const response = await fetch(`${staticServer.url}/index.html`);
+  const html = await response.text();
   const runtimeSource = await readFile(resolve(projectRoot, "src/client/app/modules/knowledge.ts"), "utf8");
   const articlesSource = await readFile(resolve(projectRoot, "src/client/app/modules/knowledge-articles.ts"), "utf8");
   const contentUtilsSource = await readFile(resolve(projectRoot, "src/client/app/modules/knowledge-content-utils.ts"), "utf8");
+  const css = await readFile(resolve(projectRoot, "style.css"), "utf8");
+  const articleModule = await import(pathToFileURL(resolve(projectRoot, "dist/app/modules/knowledge-articles.js")).href);
+  const registryArticles = articleModule.KNOWLEDGE_ARTICLES;
 
+  assert.equal(response.status, 200);
+  assert.match(html, /id="normativeAssistant"/u);
+  assert.match(html, /Нормативный ассистент/u);
   assert.match(runtimeSource, /from "\.\/knowledge-articles\.js"/u);
   assert.match(runtimeSource, /from "\.\/knowledge-content-utils\.js"/u);
+  assert.match(runtimeSource, /initNormativeAssistant/u);
+  assert.match(runtimeSource, /formatAssistantDocs/u);
+  assert.match(runtimeSource, /data-normative-article-id/u);
+  assert.match(runtimeSource, /data-normative-source-article-id/u);
+  assert.doesNotMatch(runtimeSource, /filter\(\(article\) => articleMatchesQuery\(article, rawQuery\)\)\s*\.slice/u);
+  assert.match(runtimeSource, /article\.constructionKey === constructionKey/u);
+  assert.doesNotMatch(runtimeSource, /articleMatchesQuery\(article,\s*constructionName\s*\|\|\s*constructionKey\)/u);
   assert.doesNotMatch(runtimeSource, /const KNOWLEDGE_ARTICLES\s*=\s*\[/u);
   assert.doesNotMatch(runtimeSource, /function buildKnowledgeList/u);
 
   assert.match(articlesSource, /export const KNOWLEDGE_ARTICLES/u);
   assert.match(contentUtilsSource, /export function buildExpandedKnowledgeSections/u);
+  assert.match(css, /normative-assistant__controls/u);
+  assert.match(css, /#btnNormativeAssistantAsk\.lg-btn\s*\{[\s\S]*?height:\s*36px/u);
+  assert.match(css, /normative-assistant__status\s*\{[\s\S]*?min-height:\s*22px/u);
+
+  assert.ok(Array.isArray(registryArticles) && registryArticles.length > 0);
+  const wallArticles = registryArticles.filter((article) => article.constructionKey === "wall");
+  const verticalNeighborArticles = registryArticles.filter((article) =>
+    ["column", "pylon", "elevator_shaft"].includes(article.constructionKey)
+  );
+  assert.equal(wallArticles.length, 4, "Wall construction card should expose only wall module articles");
+  assert.ok(verticalNeighborArticles.length >= 4, "Neighbor constructions must exist for filtering regression coverage");
+  assert.ok(wallArticles.every((article) => article.title?.includes("Стена")), "Wall card must not include neighbor construction articles");
+
+  const ids = new Set();
+  for (const article of registryArticles) {
+    assert.ok(article.id, "Knowledge article must expose an id for assistant source links");
+    assert.equal(ids.has(article.id), false, `Duplicate knowledge article id: ${article.id}`);
+    ids.add(article.id);
+    assert.ok(article.constructionKey, `Article ${article.id} must have constructionKey`);
+    assert.ok(article.moduleKey, `Article ${article.id} must have moduleKey`);
+    assert.ok(Array.isArray(article.fields), `Article ${article.id} must carry registry fields`);
+    assert.ok(Array.isArray(article.normativeDocs), `Article ${article.id} must carry registry normative docs`);
+  }
 });

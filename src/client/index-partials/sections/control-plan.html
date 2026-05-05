@@ -1,0 +1,90 @@
+    <section class="section" id="controlPlan">
+      <div id="sectionControlPlan">
+        <div class="module-title-row">
+          <h2>План контроля</h2>
+          <button
+            type="button"
+            class="module-help-toggle control-plan-help-toggle"
+            data-help-target="controlPlanHelpContent"
+            aria-label="Показать описание плана контроля"
+          ></button>
+        </div>
+        <p class="subtitle">
+          ITP-матрица обязательных проверок по конструкциям. Автоматически сверяет план с журналом, замечаниями и итоговой готовностью.
+        </p>
+        <div class="module-help-content" id="controlPlanHelpContent">
+          План контроля показывает, какие проверки требуются по каждой конструкции, что уже выполнено, где есть отклонения и можно ли принимать конструкцию.
+        </div>
+
+        <div class="control-plan-summary" id="controlPlanSummary" aria-live="polite">
+          <div class="control-plan-metric">
+            <span>Конструкций</span>
+            <strong id="controlPlanTotalRows">0</strong>
+          </div>
+          <div class="control-plan-metric">
+            <span>Готово</span>
+            <strong id="controlPlanReadyRows">0</strong>
+          </div>
+          <div class="control-plan-metric">
+            <span>Блокировано</span>
+            <strong id="controlPlanBlockedRows">0</strong>
+          </div>
+          <div class="control-plan-metric">
+            <span>Не хватает</span>
+            <strong id="controlPlanMissingTasks">0</strong>
+          </div>
+        </div>
+
+        <div class="control-plan-panel">
+          <div class="control-plan-toolbar">
+            <div>
+              <h3 class="control-plan-title">Матрица ITP</h3>
+              <p class="control-plan-description">План-факт по обязательным проверкам объекта.</p>
+            </div>
+            <div class="control-plan-toolbar-actions">
+              <button id="btnControlPlanRefresh" class="btn-small btn-secondary lg-btn lg-btn--pill" type="button">
+                <span class="lg-btn__label">Обновить</span>
+                <span class="lg-btn__glow" aria-hidden="true"></span>
+              </button>
+              <button id="btnControlPlanExportCsv" class="btn-small btn-secondary lg-btn lg-btn--pill" type="button">
+                <span class="lg-btn__label">CSV</span>
+                <span class="lg-btn__glow" aria-hidden="true"></span>
+              </button>
+              <button id="btnControlPlanExportPdf" class="btn-small btn-secondary lg-btn lg-btn--pill" type="button">
+                <span class="lg-btn__label">PDF</span>
+                <span class="lg-btn__glow" aria-hidden="true"></span>
+              </button>
+            </div>
+          </div>
+          <div class="control-plan-filters">
+            <div class="control-plan-status-filters" id="controlPlanStatusFilters" role="group" aria-label="Фильтр плана контроля">
+              <button type="button" class="control-plan-filter-btn is-active" data-control-plan-status="all" aria-pressed="true">Все</button>
+              <button type="button" class="control-plan-filter-btn" data-control-plan-status="blocked" aria-pressed="false">Нельзя принимать</button>
+              <button type="button" class="control-plan-filter-btn" data-control-plan-status="missing_required" aria-pressed="false">Не хватает</button>
+              <button type="button" class="control-plan-filter-btn" data-control-plan-status="ready" aria-pressed="false">Готово</button>
+            </div>
+            <input id="controlPlanSearch" class="control-plan-search" type="search" placeholder="Фильтр по конструкции" autocomplete="off" />
+          </div>
+          <div id="controlPlanEmpty" class="control-plan-empty">
+            Выберите объект или выполните первую проверку, чтобы сформировать план контроля.
+          </div>
+          <div id="controlPlanTableWrap" class="control-plan-table-wrap" hidden>
+            <table class="control-plan-table">
+              <thead>
+                <tr>
+                  <th>Конструкция</th>
+                  <th>Готовность</th>
+                  <th>Прогресс</th>
+                  <th>Следующее действие</th>
+                  <th>Гео</th>
+                  <th>Арм</th>
+                  <th>Геом</th>
+                  <th>Прочн</th>
+                </tr>
+              </thead>
+              <tbody id="controlPlanTableBody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </section>
