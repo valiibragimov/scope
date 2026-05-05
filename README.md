@@ -79,15 +79,6 @@ Firebase web config is injected from local environment during build. Firebase Ad
 
 See [SECURITY.md](SECURITY.md) for the full policy.
 
-## Roadmap
-
-- Add a safe demo mode and anonymized sample data.
-- Improve BIM/IFC element mapping and model-linked findings.
-- Document Firestore collections and security rules.
-- Expand CI with secret scanning and deployment checks.
-- Add report export templates for practical supervision workflows.
-- Expand project documentation for contributors and deployers.
-
 ## Contributing
 
 Contributions are welcome, especially around inspection workflows, BIM/IFC handling, tests, documentation, and safe deployment practices.
@@ -182,15 +173,6 @@ npm test
 Firebase web config подставляется из локального окружения во время сборки. Firebase Admin credentials должны храниться только локально или в secret storage окружения.
 
 Полная политика описана в [SECURITY.ru.md](SECURITY.ru.md).
-
-## Roadmap
-
-- Добавить безопасный demo mode и обезличенные sample data.
-- Улучшить BIM/IFC mapping и связь замечаний с элементами модели.
-- Описать Firestore collections и security rules.
-- Расширить CI проверками secret scanning и deployment checks.
-- Добавить шаблоны экспорта отчетов для практики технадзора.
-- Расширить документацию для contributors и deployers.
 
 ## Участие
 
